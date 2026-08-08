@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RoamKit Device</string>
+    <string name="restriction_device_external_id_title">Device external ID</string>
+    <string name="restriction_device_external_id_description">
+        RoamKit DeviceBinding external identifier (roamkit.device_external_id). Not a secret.
+    </string>
+    <string name="restriction_device_credential_title">Device credential</string>
+    <string name="restriction_device_credential_description">
+        Opaque device credential for POST /api/v1/device/status/ (roamkit.device_credential). Treat as secret.
+    </string>
+</resources>

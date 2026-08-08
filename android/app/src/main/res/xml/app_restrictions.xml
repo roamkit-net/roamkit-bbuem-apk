@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android Enterprise / UEM managed app configuration schema.
+  Keys must match BlackBerry UEM (and other MDM) app config keys exactly.
+-->
+<restrictions xmlns:android="http://schemas.android.com/apk/res/android">
+    <restriction
+        android:key="roamkit.device_external_id"
+        android:title="@string/restriction_device_external_id_title"
+        android:description="@string/restriction_device_external_id_description"
+        android:restrictionType="string" />
+    <restriction
+        android:key="roamkit.device_credential"
+        android:title="@string/restriction_device_credential_title"
+        android:description="@string/restriction_device_credential_description"
+        android:restrictionType="string" />
+</restrictions>
