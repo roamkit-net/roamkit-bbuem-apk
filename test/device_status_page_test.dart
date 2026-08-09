@@ -176,9 +176,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Too many status requests'), findsOneWidget);
 
-    client.error = const DeviceStatusNetworkException();
+    client.error = const DeviceStatusNetworkException('DNS lookup failed');
     await tester.tap(find.byTooltip('Reload'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Network error'), findsOneWidget);
+    expect(find.textContaining('DNS lookup failed'), findsOneWidget);
   });
 }

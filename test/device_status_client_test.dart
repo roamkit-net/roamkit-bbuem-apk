@@ -75,7 +75,13 @@ void main() {
     );
     await expectLater(
       network.fetchStatus(deviceExternalId: externalId, credential: credential),
-      throwsA(isA<DeviceStatusNetworkException>()),
+      throwsA(
+        isA<DeviceStatusNetworkException>().having(
+          (e) => e.message,
+          'message',
+          contains('api.example.test'),
+        ),
+      ),
     );
   });
 
