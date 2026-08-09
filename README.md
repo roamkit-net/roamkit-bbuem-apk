@@ -20,7 +20,7 @@ POST /api/v1/device/status/
 read-only eSIM / usage / expiry / auto-topup
 ```
 
-## Scope (PR2)
+## Scope
 
 - Read Android managed configuration (no credential storage)
 - Show `Credential: present / missing` only (never plaintext)
@@ -28,12 +28,33 @@ read-only eSIM / usage / expiry / auto-topup
 - Show read-only status + loading / missing config / 404 / 429 / network errors
 - Reload config + status on managed-config change events
 - Never log or surface the credential in error messages
+- **ADR 021 spike (debug):** App bar → ICCID spike — read active/default data
+  subscription ICCID only (no API / no fleet credential / no PR18 contract change)
 
 Out of scope:
 
 - Org UI, billing mutations, binding management
 - BlackBerry/UEM sync / provisioning automation
 - Secure storage of credentials
+- ICCID-based status API (blocked until ADR 021 Accept)
+
+## ICCID spike (ADR 021)
+
+On a BlackBerry-managed device, open **ICCID spike** from the status app bar.
+
+| Field | Purpose |
+|-------|---------|
+| Android version / SDK | Device context |
+| Default data `subscriptionId` | Lookup target |
+| `READ_PHONE_STATE` | Permission gate |
+| Managed profile / owner flags | Work-profile / DPC context |
+| ICCID or failure reason | Proof result |
+
+Failure reasons: `permission_denied`, `no_default_data_subscription`,
+`iccid_unavailable`, `ambiguous_subscription`.
+
+First proof device (Pixel 6a / `staging@roamkit.net`): APK ICCID should match
+UEM report `8900424101001825931`, or the screen must show why it cannot.
 
 ## Managed configuration keys
 

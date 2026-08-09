@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import '../api/device_status.dart';
 import '../api/device_status_client.dart';
 import '../api/device_status_errors.dart';
+import '../iccid_spike/iccid_spike_reader.dart';
 import '../managed_config/managed_config.dart';
 import '../managed_config/managed_config_keys.dart';
 import '../managed_config/managed_config_reader.dart';
+import 'iccid_spike_page.dart';
 
 /// Reads UEM managed config and shows read-only device status.
 ///
@@ -134,6 +136,19 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
       appBar: AppBar(
         title: const Text('RoamKit Device'),
         actions: [
+          IconButton(
+            tooltip: 'ICCID spike (ADR 021)',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => IccidSpikePage(
+                    reader: ChannelIccidSpikeReader(),
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.sim_card_outlined),
+          ),
           IconButton(
             tooltip: 'Reload',
             onPressed: _loading ? null : _reload,
