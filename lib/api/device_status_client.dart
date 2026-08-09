@@ -8,13 +8,15 @@ import '../config/app_config.dart';
 import 'device_status.dart';
 import 'device_status_errors.dart';
 
-/// Fetches read-only status via opaque device credential.
+/// Fetches read-only status (ADR 021 Option C″).
 ///
-/// Never persists the credential. Never logs request bodies or credentials.
+/// Prefer [deviceSerial] → `{device_serial}`. Otherwise PR18
+/// [deviceExternalId] + [credential]. Never mix shapes. Never persist secrets.
 abstract class DeviceStatusClient {
   Future<DeviceStatus> fetchStatus({
-    required String deviceExternalId,
-    required String credential,
+    String? deviceSerial,
+    String? deviceExternalId,
+    String? credential,
   });
 }
 
@@ -32,9 +34,16 @@ class HttpDeviceStatusClient implements DeviceStatusClient {
 
   @override
   Future<DeviceStatus> fetchStatus({
-    required String deviceExternalId,
-    required String credential,
+    String? deviceSerial,
+    String? deviceExternalId,
+    String? credential,
   }) async {
+    final body = _encodeBody(
+      deviceSerial: deviceSerial,
+      deviceExternalId: deviceExternalId,
+      credential: credential,
+    );
+
     late final http.Response response;
     try {
       response = await _http
@@ -44,10 +53,7 @@ class HttpDeviceStatusClient implements DeviceStatusClient {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
             },
-            body: jsonEncode({
-              'device_external_id': deviceExternalId,
-              'credential': credential,
-            }),
+            body: body,
           )
           .timeout(const Duration(seconds: 20));
     } on SocketException catch (error) {
@@ -107,5 +113,27 @@ class HttpDeviceStatusClient implements DeviceStatusClient {
           'Status request failed (HTTP ${response.statusCode}).',
         );
     }
+  }
+
+  static String _encodeBody({
+    String? deviceSerial,
+    String? deviceExternalId,
+    String? credential,
+  }) {
+    final serial = deviceSerial?.trim();
+    if (serial != null && serial.isNotEmpty) {
+      return jsonEncode({'device_serial': serial});
+    }
+    final externalId = deviceExternalId?.trim() ?? '';
+    final secret = credential ?? '';
+    if (externalId.isEmpty || secret.isEmpty) {
+      throw const DeviceStatusUnexpectedException(
+        'Status request missing device_serial or PR18 credentials.',
+      );
+    }
+    return jsonEncode({
+      'device_external_id': externalId,
+      'credential': secret,
+    });
   }
 }

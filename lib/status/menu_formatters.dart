@@ -48,4 +48,11 @@ abstract final class MenuFormatters {
     }
     return config.deviceExternalId!;
   }
+
+  static String deviceSerial(ManagedConfig? config) {
+    if (config == null || !config.hasDeviceSerial) {
+      return '—';
+    }
+    return config.deviceSerial!;
+  }
 }

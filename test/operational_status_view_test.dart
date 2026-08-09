@@ -288,6 +288,22 @@ void main() {
         ),
         'Missing',
       );
+      expect(
+        MenuFormatters.deviceSerial(
+          const ManagedConfig(
+            deviceSerial: '36281JEGR04531',
+            deviceExternalId: null,
+            deviceCredential: null,
+          ),
+        ),
+        '36281JEGR04531',
+      );
+      expect(
+        MenuFormatters.deviceSerial(
+          const ManagedConfig(deviceExternalId: 'x', deviceCredential: 's'),
+        ),
+        '—',
+      );
     });
   });
 
