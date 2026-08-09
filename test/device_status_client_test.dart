@@ -50,16 +50,82 @@ void main() {
     expect(status.autoTopup.enabled, isTrue);
   });
 
-  test('maps 404/429/network failures without echoing credential', () async {
-    final notFound = HttpDeviceStatusClient(
+  test('maps 404 with code=iccid_not_found to ICCID miss message', () async {
+    final client = HttpDeviceStatusClient(
+      apiBaseUrl: 'https://api.example.test',
+      httpClient: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'detail': 'No RoamKit data for this ICCID.',
+            'code': 'iccid_not_found',
+          }),
+          404,
+          headers: {'content-type': 'application/json'},
+        ),
+      ),
+    );
+
+    await expectLater(
+      client.fetchStatus(deviceExternalId: externalId, credential: credential),
+      throwsA(
+        isA<DeviceStatusIccidNotFoundException>().having(
+          (e) => e.message,
+          'message',
+          'No RoamKit data for this ICCID',
+        ),
+      ),
+    );
+  });
+
+  test('maps generic 404 without code to binding/credential message', () async {
+    final client = HttpDeviceStatusClient(
       apiBaseUrl: 'https://api.example.test',
       httpClient: MockClient((_) async => http.Response('{"detail":"Nope"}', 404)),
     );
-    await expectLater(
-      notFound.fetchStatus(deviceExternalId: externalId, credential: credential),
-      throwsA(isA<DeviceStatusNotFoundException>()),
-    );
 
+    await expectLater(
+      client.fetchStatus(deviceExternalId: externalId, credential: credential),
+      throwsA(
+        isA<DeviceStatusNotFoundException>().having(
+          (e) => e.message,
+          'message',
+          'Device binding not found or credential invalid.',
+        ),
+      ),
+    );
+  });
+
+  test(
+    'maps 503 with code=uem_inventory_unavailable to inventory message',
+    () async {
+      final client = HttpDeviceStatusClient(
+        apiBaseUrl: 'https://api.example.test',
+        httpClient: MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'detail': 'UEM telephony inventory unavailable',
+              'code': 'uem_inventory_unavailable',
+            }),
+            503,
+            headers: {'content-type': 'application/json'},
+          ),
+        ),
+      );
+
+      await expectLater(
+        client.fetchStatus(deviceExternalId: externalId, credential: credential),
+        throwsA(
+          isA<DeviceStatusUemInventoryUnavailableException>().having(
+            (e) => e.message,
+            'message',
+            'UEM SIM inventory is temporarily unavailable.',
+          ),
+        ),
+      );
+    },
+  );
+
+  test('maps 429/network failures without echoing credential', () async {
     final limited = HttpDeviceStatusClient(
       apiBaseUrl: 'https://api.example.test',
       httpClient: MockClient((_) async => http.Response('rate', 429)),
@@ -83,6 +149,16 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('statusErrorCodeFromBody reads code safely', () {
+    expect(
+      statusErrorCodeFromBody('{"code":"iccid_not_found","detail":"x"}'),
+      'iccid_not_found',
+    );
+    expect(statusErrorCodeFromBody('{"detail":"Nope"}'), isNull);
+    expect(statusErrorCodeFromBody('not-json'), isNull);
+    expect(statusErrorCodeFromBody(''), isNull);
   });
 
   test('redactCredential removes secret from text', () {

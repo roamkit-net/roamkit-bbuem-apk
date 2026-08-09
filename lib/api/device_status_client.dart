@@ -85,7 +85,20 @@ class HttpDeviceStatusClient implements DeviceStatusClient {
         }
         return DeviceStatus.fromJson(Map<String, dynamic>.from(decoded));
       case 404:
+        // Distinguish ICCID miss from auth/binding 404 via API ``code`` only.
+        // Never surface raw response detail (may be unsafe / noisy).
+        if (statusErrorCodeFromBody(response.body) == 'iccid_not_found') {
+          throw const DeviceStatusIccidNotFoundException();
+        }
         throw const DeviceStatusNotFoundException();
+      case 503:
+        if (statusErrorCodeFromBody(response.body) ==
+            'uem_inventory_unavailable') {
+          throw const DeviceStatusUemInventoryUnavailableException();
+        }
+        throw const DeviceStatusUnexpectedException(
+          'Status request failed (HTTP 503).',
+        );
       case 429:
         throw const DeviceStatusRateLimitedException();
       default:
