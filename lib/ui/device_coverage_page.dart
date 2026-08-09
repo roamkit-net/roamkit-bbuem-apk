@@ -8,17 +8,20 @@ import '../status/plan_badge.dart';
 
 /// Secondary screen: purchase-time country / operator coverage.
 ///
-/// Credential is held only for the in-flight fetch and never shown.
+/// Auth: prefer [deviceSerial]; else PR18 [deviceExternalId] + [credential].
+/// Secrets are held only for the in-flight fetch and never shown.
 class DeviceCoveragePage extends StatefulWidget {
   const DeviceCoveragePage({
     super.key,
-    required this.deviceExternalId,
-    required this.credential,
+    this.deviceSerial,
+    this.deviceExternalId,
+    this.credential,
     required this.coverageClient,
   });
 
-  final String deviceExternalId;
-  final String credential;
+  final String? deviceSerial;
+  final String? deviceExternalId;
+  final String? credential;
   final DeviceCoverageClient coverageClient;
 
   @override
@@ -44,10 +47,13 @@ class _DeviceCoveragePageState extends State<DeviceCoveragePage> {
       _errorDetail = null;
     });
     try {
-      final result = await widget.coverageClient.fetchCoverage(
-        deviceExternalId: widget.deviceExternalId,
-        credential: widget.credential,
-      );
+      final serial = widget.deviceSerial?.trim();
+      final result = (serial != null && serial.isNotEmpty)
+          ? await widget.coverageClient.fetchCoverage(deviceSerial: serial)
+          : await widget.coverageClient.fetchCoverage(
+              deviceExternalId: widget.deviceExternalId,
+              credential: widget.credential,
+            );
       if (!mounted) {
         return;
       }

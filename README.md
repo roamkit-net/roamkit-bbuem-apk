@@ -94,7 +94,8 @@ Rules:
 | `roamkit.device_external_id` | PR18 fallback `DeviceBinding` lookup id (not a secret) |
 | `roamkit.device_credential` | PR18 fallback opaque secret for status/coverage |
 
-When `roamkit.device_serial` is present, status uses the serial path even if PR18 keys are also set. Coverage remains PR18-only.
+When `roamkit.device_serial` is present, status and coverage use the serial
+path even if PR18 keys are also set.
 
 Do **not** put `organization_id`, `account_id`, ICCID, `fleet_*`, or user JWTs in managed config.
 
