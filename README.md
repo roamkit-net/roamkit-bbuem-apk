@@ -2,9 +2,7 @@
 
 Flutter/Android app for RoamKit managed devices (BlackBerry UEM / Android Enterprise).
 
-## PR1 scope
-
-Prove the **UEM → APK managed configuration channel**:
+## Flow
 
 ```text
 BlackBerry UEM
@@ -17,23 +15,27 @@ reads:
   roamkit.device_external_id
   roamkit.device_credential
   ↓
-debug screen shows values
+POST /api/v1/device/status/
+  ↓
+read-only eSIM / usage / expiry / auto-topup
 ```
 
-Out of scope for PR1:
+## Scope (PR2)
 
-- API calls (`POST /api/v1/device/status/`)
-- credential persistence / secure storage
-- org, billing, or eSIM UI
-- BlackBerry backend sync
+- Read Android managed configuration (no credential storage)
+- Show `Credential: present / missing` only (never plaintext)
+- Call `POST /api/v1/device/status/` with the two managed values
+- Show read-only status + loading / missing config / 404 / 429 / network errors
+- Reload config + status on managed-config change events
+- Never log or surface the credential in error messages
 
-`device_credential` is shown in plaintext **only** for UEM delivery validation.
-Remove that debug display before wiring the status API.
+Out of scope:
+
+- Org UI, billing mutations, binding management
+- BlackBerry/UEM sync / provisioning automation
+- Secure storage of credentials
 
 ## Managed configuration keys
-
-Declared in `android/app/src/main/res/xml/app_restrictions.xml` and linked from the
-manifest via `android.content.APP_RESTRICTIONS`:
 
 | Key | Purpose |
 |-----|---------|
@@ -50,18 +52,21 @@ flutter analyze
 flutter test
 ```
 
-Build a debug APK for UEM upload (requires Android SDK):
+Default API base: `https://api.staging.roamkit.net`
+
+Override:
 
 ```bash
-flutter build apk --debug
+flutter run --dart-define=ROAMKIT_API_BASE_URL=https://api.staging.roamkit.net
+flutter build apk --debug --dart-define=ROAMKIT_API_BASE_URL=https://api.staging.roamkit.net
 ```
 
 Application id: `net.roamkit.device`
 
-## UEM validation checklist
+## UEM notes
 
 1. Upload internal APK to BlackBerry UEM.
-2. Configure app configuration with the two keys above (values from API binding create/rotate).
-3. Assign app + config to a Work space / Android Enterprise device.
-4. Open the app and confirm both values appear.
-5. Only then proceed to status API integration (next PR).
+2. App configuration values must come from API binding create/rotate
+   (not from the temporary channel-proof strings).
+3. Assign app + configuration to the device.
+4. Open the app — status loads when both managed values are present and valid.
