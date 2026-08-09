@@ -31,7 +31,7 @@ class DeviceStatusRateLimitedException extends DeviceStatusException {
 }
 
 class DeviceStatusNetworkException extends DeviceStatusException {
-  const DeviceStatusNetworkException([String detail = ''])
+  DeviceStatusNetworkException([String detail = ''])
       : super(
           detail.isEmpty
               ? 'Network error while fetching device status.'
