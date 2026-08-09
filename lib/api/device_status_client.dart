@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -36,23 +37,42 @@ class HttpDeviceStatusClient implements DeviceStatusClient {
   }) async {
     late final http.Response response;
     try {
-      response = await _http.post(
-        _statusUri,
-        headers: const {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: jsonEncode({
-          'device_external_id': deviceExternalId,
-          'credential': credential,
-        }),
+      response = await _http
+          .post(
+            _statusUri,
+            headers: const {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode({
+              'device_external_id': deviceExternalId,
+              'credential': credential,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+    } on SocketException catch (error) {
+      throw DeviceStatusNetworkException(
+        networkFailureDetail(error, apiHost: _statusUri.host),
       );
-    } on SocketException {
-      throw const DeviceStatusNetworkException();
-    } on http.ClientException {
-      throw const DeviceStatusNetworkException();
-    } on HandshakeException {
-      throw const DeviceStatusNetworkException();
+    } on HandshakeException catch (error) {
+      throw DeviceStatusNetworkException(
+        networkFailureDetail(error, apiHost: _statusUri.host),
+      );
+    } on TlsException catch (error) {
+      throw DeviceStatusNetworkException(
+        networkFailureDetail(error, apiHost: _statusUri.host),
+      );
+    } on http.ClientException catch (error) {
+      throw DeviceStatusNetworkException(
+        networkFailureDetail(error, apiHost: _statusUri.host),
+      );
+    } on TimeoutException {
+      throw DeviceStatusNetworkException(
+        networkFailureDetail(
+          const SocketException('timed out'),
+          apiHost: _statusUri.host,
+        ),
+      );
     }
 
     switch (response.statusCode) {
