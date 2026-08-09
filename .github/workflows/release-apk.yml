@@ -1,0 +1,74 @@
+# Signed production APK on main (qubitmdm / qubit-signer keystore via GitHub secrets).
+
+name: Release APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    uses: ./.github/workflows/secret-scan.yml
+    permissions:
+      contents: read
+
+  release-apk:
+    needs: secret-scan
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - roamkit
+      - default
+    env:
+      ROAMKIT_REQUIRE_RELEASE_SIGNING: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.32.7"
+          channel: stable
+          cache: true
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Materialize release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_KEYSTORE_BASE64:-}"
+          test -n "${ANDROID_KEYSTORE_PASSWORD:-}"
+          test -n "${ANDROID_KEY_PASSWORD:-}"
+          test -n "${ANDROID_KEYSTORE_ALIAS:-}"
+          KEYSTORE_PATH="${RUNNER_TEMP}/roamkit-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+          {
+            echo "KEYSTORE_PATH=$KEYSTORE_PATH"
+            echo "KEYSTORE_ALIAS=$ANDROID_KEYSTORE_ALIAS"
+            echo "KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+            echo "KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+          } > android/key.properties
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Build signed release APK
+        run: >
+          flutter build apk --release
+          --dart-define=ROAMKIT_API_BASE_URL=https://api.roamkit.net
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: roamkit-bbuem-release-${{ github.sha }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
