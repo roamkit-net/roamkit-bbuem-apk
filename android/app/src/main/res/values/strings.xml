@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">RoamKit Device</string>
+    <string name="app_name">RoamKit</string>
     <string name="restriction_device_external_id_title">Device external ID</string>
     <string name="restriction_device_external_id_description">
         RoamKit DeviceBinding external identifier (roamkit.device_external_id). Not a secret.

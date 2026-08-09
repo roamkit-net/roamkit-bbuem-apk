@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:roamkit_device/api/device_status.dart';
-import 'package:roamkit_device/api/device_status_client.dart';
-import 'package:roamkit_device/main.dart';
-import 'package:roamkit_device/managed_config/managed_config.dart';
-import 'package:roamkit_device/managed_config/managed_config_reader.dart';
-import 'package:roamkit_device/widget/widget_snapshot_store.dart';
+import 'package:roamkit_bbuem_apk/api/device_status.dart';
+import 'package:roamkit_bbuem_apk/api/device_status_client.dart';
+import 'package:roamkit_bbuem_apk/main.dart';
+import 'package:roamkit_bbuem_apk/managed_config/managed_config.dart';
+import 'package:roamkit_bbuem_apk/managed_config/managed_config_reader.dart';
+import 'package:roamkit_bbuem_apk/widget/widget_snapshot_store.dart';
 
 class _EmptyReader implements ManagedConfigReader {
   @override

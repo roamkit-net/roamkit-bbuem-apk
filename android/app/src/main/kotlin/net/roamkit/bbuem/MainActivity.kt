@@ -1,4 +1,4 @@
-package net.roamkit.device
+package net.roamkit.bbuem
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -19,8 +19,8 @@ import io.flutter.plugin.common.MethodChannel
  * - roamkit.device_credential
  */
 class MainActivity : FlutterActivity() {
-    private val managedMethodChannelName = "net.roamkit.device/managed_config"
-    private val managedEventChannelName = "net.roamkit.device/managed_config_events"
+    private val managedMethodChannelName = "net.roamkit.bbuem/managed_config"
+    private val managedEventChannelName = "net.roamkit.bbuem/managed_config_events"
 
     private var restrictionsReceiver: BroadcastReceiver? = null
     private var eventSink: EventChannel.EventSink? = null

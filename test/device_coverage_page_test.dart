@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:roamkit_device/api/device_coverage.dart';
-import 'package:roamkit_device/api/device_coverage_client.dart';
-import 'package:roamkit_device/ui/device_coverage_page.dart';
+import 'package:roamkit_bbuem_apk/api/device_coverage.dart';
+import 'package:roamkit_bbuem_apk/api/device_coverage_client.dart';
+import 'package:roamkit_bbuem_apk/ui/device_coverage_page.dart';
 
 class _FakeCoverageClient implements DeviceCoverageClient {
   _FakeCoverageClient(this.coverage);

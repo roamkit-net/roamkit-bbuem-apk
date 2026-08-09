@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:roamkit_device/managed_config/managed_config.dart';
-import 'package:roamkit_device/managed_config/managed_config_keys.dart';
+import 'package:roamkit_bbuem_apk/managed_config/managed_config.dart';
+import 'package:roamkit_bbuem_apk/managed_config/managed_config_keys.dart';
 
 void main() {
   test('fromChannelMap maps UEM keys', () {
