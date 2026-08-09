@@ -554,6 +554,55 @@ void main() {
     expect(coverage.calls, 1);
   });
 
+  testWidgets(
+    'support menu Coverage opens country list after sheet closes',
+    (tester) async {
+      final reader = _FakeReader(
+        const ManagedConfig(
+          deviceSerial: '36281JEGR04531',
+          deviceExternalId: null,
+          deviceCredential: null,
+        ),
+      );
+      final client = _FakeStatusClient(
+        status: _sampleStatus(
+          plan: const DeviceStatusPlan(
+            title: '300 MB - 3 days',
+            dataAllowance: '300 MB',
+            validityDays: 3,
+            coverageType: 'global',
+            coverageSummary: DeviceStatusCoverageSummary(
+              available: true,
+              countryCount: 165,
+            ),
+          ),
+        ),
+      );
+      final coverage = _FakeCoverageClient();
+      addTearDown(reader.dispose);
+
+      await _pumpPage(
+        tester,
+        reader: reader,
+        client: client,
+        coverageClient: coverage,
+      );
+
+      await tester.tap(find.byTooltip('Support menu'));
+      await tester.pumpAndSettle();
+      expect(find.text('Coverage'), findsOneWidget);
+      expect(find.text('165 countries'), findsOneWidget);
+
+      await tester.tap(find.text('Coverage'));
+      await tester.pumpAndSettle();
+      // Sheet must be gone; Coverage screen shows the country list.
+      expect(find.text('165 countries'), findsNothing);
+      expect(find.text('Croatia'), findsOneWidget);
+      expect(find.text('1 country'), findsOneWidget);
+      expect(coverage.calls, 1);
+    },
+  );
+
   testWidgets('local plan does not show Coverage entry', (tester) async {
     final reader = _FakeReader(
       const ManagedConfig(
