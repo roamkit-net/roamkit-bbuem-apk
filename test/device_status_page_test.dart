@@ -39,14 +39,19 @@ class _FakeStatusClient implements DeviceStatusClient {
   DeviceStatusException? error;
   int calls = 0;
   String? lastCredential;
+  String? lastSerial;
+  String? lastExternalId;
   Completer<DeviceStatus>? delay;
 
   @override
   Future<DeviceStatus> fetchStatus({
-    required String deviceExternalId,
-    required String credential,
+    String? deviceSerial,
+    String? deviceExternalId,
+    String? credential,
   }) async {
     calls += 1;
+    lastSerial = deviceSerial;
+    lastExternalId = deviceExternalId;
     lastCredential = credential;
     if (delay != null) {
       return delay!.future;
@@ -187,6 +192,51 @@ void main() {
     expect(find.text(_testIccid), findsNothing);
     expect(client.calls, 1);
     expect(client.lastCredential, secret);
+  });
+
+  testWidgets('serial managed config prefers serial status path', (tester) async {
+    const serial = '36281JEGR04531';
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceSerial: serial,
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret-must-not-be-sent',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    addTearDown(reader.dispose);
+
+    await _pumpPage(tester, reader: reader, client: client);
+
+    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(client.calls, 1);
+    expect(client.lastSerial, serial);
+    expect(client.lastExternalId, isNull);
+    expect(client.lastCredential, isNull);
+
+    await tester.tap(find.byTooltip('Support menu'));
+    await tester.pumpAndSettle();
+    expect(find.text('Device serial'), findsOneWidget);
+    expect(find.text(serial), findsOneWidget);
+  });
+
+  testWidgets('serial-only config loads status without PR18 keys', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceSerial: '36281JEGR04531',
+        deviceExternalId: null,
+        deviceCredential: null,
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    addTearDown(reader.dispose);
+
+    await _pumpPage(tester, reader: reader, client: client);
+
+    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(client.calls, 1);
+    expect(client.lastSerial, '36281JEGR04531');
+    expect(client.lastCredential, isNull);
   });
 
   testWidgets('success RED NO DATA for zero remaining', (tester) async {

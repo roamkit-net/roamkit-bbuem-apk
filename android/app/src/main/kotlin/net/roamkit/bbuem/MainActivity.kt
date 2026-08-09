@@ -14,9 +14,9 @@ import io.flutter.plugin.common.MethodChannel
 /**
  * Bridges Android managed configuration (RestrictionsManager) to Flutter.
  *
- * UEM keys:
- * - roamkit.device_external_id
- * - roamkit.device_credential
+ * UEM keys (ADR 021 Option C″):
+ * - roamkit.device_serial (normative; UEM %SerialNumber%)
+ * - roamkit.device_external_id + roamkit.device_credential (PR18 fallback)
  */
 class MainActivity : FlutterActivity() {
     private val managedMethodChannelName = "net.roamkit.bbuem/managed_config"
@@ -62,6 +62,7 @@ class MainActivity : FlutterActivity() {
         val manager = getSystemService(Context.RESTRICTIONS_SERVICE) as RestrictionsManager
         val bundle = manager.applicationRestrictions
         return mapOf(
+            "roamkit.device_serial" to bundle.getString("roamkit.device_serial"),
             "roamkit.device_external_id" to bundle.getString("roamkit.device_external_id"),
             "roamkit.device_credential" to bundle.getString("roamkit.device_credential"),
         )
