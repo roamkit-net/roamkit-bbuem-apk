@@ -29,13 +29,14 @@ operational eSIM status (green / red / slate)
 - Reload on managed-config change; single-flight refresh; failed refresh → slate error
 - Never log or surface the credential; never show ICCID on user surfaces
 - Plan badge is informational only — does not drive GREEN/RED
+- Android home-screen widgets (2×2 + 4×2) paint from the same Dart snapshot
 
 Out of scope:
 
 - Org UI, billing mutations, binding management
 - BlackBerry/UEM sync / provisioning automation
 - Secure storage of credentials
-- Android home-screen App Widget (future PR)
+- Headless / WorkManager widget refresh while the app is dead
 - Amber / low-data warning state
 
 ## Status colors (locked)
@@ -55,7 +56,31 @@ Hero labels (error): `UNAVAILABLE` / `NO DATA` (ICCID miss) / `TRY LATER` / `OFF
 
 Success RED `NO DATA` (unusable remaining) is distinct from slate error `NO DATA` (ICCID miss).
 
-Color logic lives in pure Dart [`lib/status/operational_status_view.dart`](lib/status/operational_status_view.dart) (no Flutter imports) so a future home-screen widget can reuse it.
+Color logic lives in pure Dart [`lib/status/operational_status_view.dart`](lib/status/operational_status_view.dart) (no Flutter imports). The home-screen widget reuses those view-models via an atomic JSON snapshot — Kotlin only paints.
+
+## Home-screen widgets
+
+Two separate picker entries (no 4×4):
+
+| Entry | Size | Shows |
+|-------|------|--------|
+| RoamKit Status | 2×2 | Hero + remaining |
+| RoamKit Status Wide | 4×2 | Hero + plan (if present) + remaining + expiry |
+
+Architecture:
+
+1. After each completed status load (success or error), Flutter builds a `WidgetSnapshot` from `OperationalStatusView` + optional `PlanBadgeView`.
+2. One JSON string is written under `widget_snapshot_v1`, then both providers are refreshed.
+3. Native `RoamKitCompactWidgetProvider` / `RoamKitWideWidgetProvider` share `RoamKitWidgetBinder` — deserialize and paint only.
+
+Rules:
+
+- Open the app at least once after install / UEM config so a snapshot exists.
+- In-flight reload does **not** overwrite the last good widget with a loading slate (same SWR idea as in-app).
+- Failed refresh publishes slate error (never leaves a false green).
+- Missing / corrupt / unknown schema → slate `UNAVAILABLE` / “Open RoamKit”.
+- Tap opens `MainActivity` with no credential, ICCID, or external-id extras.
+- No background fetch while the app is dead (last persisted snapshot survives reboot).
 
 ## Managed configuration keys
 

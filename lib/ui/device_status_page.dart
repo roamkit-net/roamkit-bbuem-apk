@@ -11,6 +11,8 @@ import '../managed_config/managed_config_reader.dart';
 import '../status/menu_formatters.dart';
 import '../status/operational_status_view.dart';
 import '../status/plan_badge.dart';
+import '../widget/widget_snapshot.dart';
+import '../widget/widget_snapshot_store.dart';
 
 /// Reads UEM managed config and shows operational eSIM status.
 ///
@@ -22,6 +24,7 @@ class DeviceStatusPage extends StatefulWidget {
     required this.reader,
     required this.statusClient,
     this.now,
+    this.snapshotStore,
   });
 
   final ManagedConfigReader reader;
@@ -29,6 +32,9 @@ class DeviceStatusPage extends StatefulWidget {
 
   /// Clock injection for tests; defaults to [DateTime.now].
   final DateTime Function()? now;
+
+  /// Home-widget publisher; defaults to [HomeWidgetSnapshotStore].
+  final WidgetSnapshotStore? snapshotStore;
 
   @override
   State<DeviceStatusPage> createState() => _DeviceStatusPageState();
@@ -41,7 +47,10 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
   bool _loading = true;
   Future<void>? _inFlight;
   int _reloadGeneration = 0;
+  int _widgetRevision = 0;
   StreamSubscription<ManagedConfig>? _subscription;
+  late final WidgetSnapshotStore _snapshotStore =
+      widget.snapshotStore ?? const HomeWidgetSnapshotStore();
 
   DateTime _now() => widget.now?.call() ?? DateTime.now();
 
@@ -97,6 +106,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
           );
           _loading = false;
         });
+        unawaited(_publishWidgetSnapshot());
         return;
       }
 
@@ -114,6 +124,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
         _view = evaluateOperationalView(status, now: _now());
         _loading = false;
       });
+      unawaited(_publishWidgetSnapshot());
     } on DeviceStatusException catch (error) {
       if (!mounted || generation != _reloadGeneration) {
         return;
@@ -126,6 +137,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
         _view = OperationalStatusView.fromException(error);
         _loading = false;
       });
+      unawaited(_publishWidgetSnapshot());
     } catch (error) {
       if (!mounted || generation != _reloadGeneration) {
         return;
@@ -142,11 +154,35 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
         );
         _loading = false;
       });
+      unawaited(_publishWidgetSnapshot());
       assert(() {
         debugPrint(
           'device status unexpected error: '
           '${redactCredential('$error', credentialForRedaction)}',
         );
+        return true;
+      }());
+    }
+  }
+
+  /// Publish final success/error only — never in-flight [StatusSurface.slateLoading].
+  Future<void> _publishWidgetSnapshot() async {
+    if (_view.surface == StatusSurface.slateLoading) {
+      return;
+    }
+    final plan =
+        _view.isSuccessSnapshot ? buildPlanBadgeView(_status?.plan) : null;
+    final snapshot = WidgetSnapshot.fromViews(
+      view: _view,
+      plan: plan,
+      revision: ++_widgetRevision,
+      generatedAt: _now().toUtc(),
+    );
+    try {
+      await _snapshotStore.publish(snapshot);
+    } catch (error) {
+      assert(() {
+        debugPrint('widget snapshot publish failed: $error');
         return true;
       }());
     }

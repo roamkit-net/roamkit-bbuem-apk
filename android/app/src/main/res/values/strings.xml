@@ -9,4 +9,8 @@
     <string name="restriction_device_credential_description">
         Opaque device credential for POST /api/v1/device/status/ (roamkit.device_credential). Treat as secret.
     </string>
+    <string name="widget_compact_label">RoamKit Status</string>
+    <string name="widget_compact_description">Compact eSIM status (hero and remaining).</string>
+    <string name="widget_wide_label">RoamKit Status Wide</string>
+    <string name="widget_wide_description">Wide eSIM status (hero, plan, remaining, expiry).</string>
 </resources>
