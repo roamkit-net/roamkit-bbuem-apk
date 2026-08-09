@@ -28,7 +28,8 @@ fun signingProp(name: String): String? {
 android {
     namespace = "net.roamkit.bbuem"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // home_widget / path_provider require NDK 27; Flutter default may be lower.
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -41,7 +42,8 @@ android {
 
     defaultConfig {
         applicationId = "net.roamkit.bbuem"
-        minSdk = flutter.minSdkVersion
+        // androidx.work (via home_widget) requires minSdk 23.
+        minSdk = maxOf(flutter.minSdkVersion, 23)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
