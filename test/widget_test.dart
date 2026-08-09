@@ -18,8 +18,9 @@ class _EmptyReader implements ManagedConfigReader {
 class _NoopClient implements DeviceStatusClient {
   @override
   Future<DeviceStatus> fetchStatus({
-    required String deviceExternalId,
-    required String credential,
+    String? deviceSerial,
+    String? deviceExternalId,
+    String? credential,
   }) {
     throw StateError('should not be called without managed config');
   }

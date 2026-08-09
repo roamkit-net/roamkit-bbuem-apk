@@ -27,6 +27,7 @@ class ChannelManagedConfigReader implements ManagedConfigReader {
   Future<ManagedConfig> read() async {
     if (defaultTargetPlatform != TargetPlatform.android) {
       return const ManagedConfig(
+        deviceSerial: null,
         deviceExternalId: null,
         deviceCredential: null,
       );

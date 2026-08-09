@@ -5,6 +5,11 @@
 -->
 <restrictions xmlns:android="http://schemas.android.com/apk/res/android">
     <restriction
+        android:key="roamkit.device_serial"
+        android:title="@string/restriction_device_serial_title"
+        android:description="@string/restriction_device_serial_description"
+        android:restrictionType="string" />
+    <restriction
         android:key="roamkit.device_external_id"
         android:title="@string/restriction_device_external_id_title"
         android:description="@string/restriction_device_external_id_description"

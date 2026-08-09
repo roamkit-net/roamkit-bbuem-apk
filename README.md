@@ -5,17 +5,17 @@ Flutter/Android app for RoamKit managed devices (BlackBerry UEM / Android Enterp
 ## Flow
 
 ```text
-BlackBerry UEM
-  ↓
-managed app configuration
+BlackBerry UEM App Config
+  roamkit.device_serial = %SerialNumber%
+  (optional PR18 fallback:
+   roamkit.device_external_id + roamkit.device_credential)
   ↓
 RoamKit APK (net.roamkit.bbuem)
-  ↓
-reads:
-  roamkit.device_external_id
-  roamkit.device_credential
+  RestrictionsManager
   ↓
 POST /api/v1/device/status/
+  { "device_serial" }          ← preferred when serial present
+  or PR18 device_external_id + credential
   ↓
 operational eSIM status (green / red / slate)
 ```
@@ -90,10 +90,13 @@ Rules:
 
 | Key | Purpose |
 |-----|---------|
-| `roamkit.device_external_id` | Active `DeviceBinding` lookup id (not a secret) |
-| `roamkit.device_credential` | Opaque device secret for device status auth |
+| `roamkit.device_serial` | Normative v1 status identity (UEM `%SerialNumber%`; not a secret) |
+| `roamkit.device_external_id` | PR18 fallback `DeviceBinding` lookup id (not a secret) |
+| `roamkit.device_credential` | PR18 fallback opaque secret for status/coverage |
 
-Do **not** put `organization_id`, `account_id`, ICCID, or user JWTs in managed config.
+When `roamkit.device_serial` is present, status uses the serial path even if PR18 keys are also set. Coverage remains PR18-only.
+
+Do **not** put `organization_id`, `account_id`, ICCID, `fleet_*`, or user JWTs in managed config.
 
 ## Local development
 

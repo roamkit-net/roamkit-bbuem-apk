@@ -17,7 +17,8 @@ class MissingManagedConfigException extends DeviceStatusException {
   const MissingManagedConfigException()
       : super(
           'Managed configuration incomplete. '
-          'Waiting for roamkit.device_external_id and roamkit.device_credential.',
+          'Waiting for roamkit.device_serial, or PR18 '
+          'roamkit.device_external_id + roamkit.device_credential.',
         );
 }
 
