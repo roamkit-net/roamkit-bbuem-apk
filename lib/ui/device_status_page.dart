@@ -5,25 +5,30 @@ import 'package:flutter/material.dart';
 import '../api/device_status.dart';
 import '../api/device_status_client.dart';
 import '../api/device_status_errors.dart';
-import '../iccid_spike/iccid_spike_reader.dart';
+import '../config/app_config.dart';
 import '../managed_config/managed_config.dart';
-import '../managed_config/managed_config_keys.dart';
 import '../managed_config/managed_config_reader.dart';
-import 'iccid_spike_page.dart';
+import '../status/menu_formatters.dart';
+import '../status/operational_status_view.dart';
+import '../status/plan_badge.dart';
 
-/// Reads UEM managed config and shows read-only device status.
+/// Reads UEM managed config and shows operational eSIM status.
 ///
 /// Credential is used only in-memory for the status POST and is never shown,
-/// stored, or included in error text.
+/// stored, or included in error text. ICCID is never shown on user surfaces.
 class DeviceStatusPage extends StatefulWidget {
   const DeviceStatusPage({
     super.key,
     required this.reader,
     required this.statusClient,
+    this.now,
   });
 
   final ManagedConfigReader reader;
   final DeviceStatusClient statusClient;
+
+  /// Clock injection for tests; defaults to [DateTime.now].
+  final DateTime Function()? now;
 
   @override
   State<DeviceStatusPage> createState() => _DeviceStatusPageState();
@@ -32,9 +37,13 @@ class DeviceStatusPage extends StatefulWidget {
 class _DeviceStatusPageState extends State<DeviceStatusPage> {
   ManagedConfig? _config;
   DeviceStatus? _status;
-  String? _errorMessage;
+  OperationalStatusView _view = OperationalStatusView.loading();
   bool _loading = true;
+  Future<void>? _inFlight;
+  int _reloadGeneration = 0;
   StreamSubscription<ManagedConfig>? _subscription;
+
+  DateTime _now() => widget.now?.call() ?? DateTime.now();
 
   @override
   void initState() {
@@ -51,10 +60,22 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
     super.dispose();
   }
 
-  Future<void> _reload() async {
+  Future<void> _reload() {
+    // Single-flight: concurrent callers await the same request; clear when done.
+    return _inFlight ??= _reloadBody().whenComplete(() {
+      _inFlight = null;
+    });
+  }
+
+  Future<void> _reloadBody() async {
+    final generation = ++_reloadGeneration;
+    final hadSuccess = _view.isSuccessSnapshot;
+
     setState(() {
       _loading = true;
-      _errorMessage = null;
+      if (!hadSuccess) {
+        _view = OperationalStatusView.loading();
+      }
     });
 
     String? credentialForRedaction;
@@ -63,7 +84,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
       config = await widget.reader.read();
       credentialForRedaction = config.deviceCredential;
 
-      if (!mounted) {
+      if (!mounted || generation != _reloadGeneration) {
         return;
       }
 
@@ -71,7 +92,9 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
         setState(() {
           _config = config;
           _status = null;
-          _errorMessage = const MissingManagedConfigException().message;
+          _view = OperationalStatusView.fromException(
+            const MissingManagedConfigException(),
+          );
           _loading = false;
         });
         return;
@@ -82,17 +105,17 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
         credential: config.deviceCredential!,
       );
 
-      if (!mounted) {
+      if (!mounted || generation != _reloadGeneration) {
         return;
       }
       setState(() {
         _config = config;
         _status = status;
-        _errorMessage = null;
+        _view = evaluateOperationalView(status, now: _now());
         _loading = false;
       });
     } on DeviceStatusException catch (error) {
-      if (!mounted) {
+      if (!mounted || generation != _reloadGeneration) {
         return;
       }
       setState(() {
@@ -100,20 +123,23 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
           _config = config;
         }
         _status = null;
-        _errorMessage = redactCredential(error.message, credentialForRedaction);
+        _view = OperationalStatusView.fromException(error);
         _loading = false;
       });
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || generation != _reloadGeneration) {
         return;
       }
-      // Never put exception details that might echo request data into the UI.
       setState(() {
         if (config != null) {
           _config = config;
         }
         _status = null;
-        _errorMessage = 'Unexpected error while loading device status.';
+        _view = OperationalStatusView.fromException(
+          const DeviceStatusUnexpectedException(
+            'Could not load status',
+          ),
+        );
         _loading = false;
       });
       assert(() {
@@ -126,148 +152,304 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+  Color get _panelColor {
+    return switch (_view.surface) {
+      StatusSurface.green => const Color(OperationalStatusView.greenColorValue),
+      StatusSurface.red => const Color(OperationalStatusView.redColorValue),
+      StatusSurface.slateLoading ||
+      StatusSurface.slateError =>
+        const Color(OperationalStatusView.slateColorValue),
+    };
+  }
+
+  void _openSupportMenu() {
     final config = _config;
     final status = _status;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                title: const Text('Device binding'),
+                subtitle: Text(MenuFormatters.binding(status?.bindingStatus)),
+              ),
+              ListTile(
+                title: const Text('External ID'),
+                subtitle: Text(MenuFormatters.externalId(config)),
+              ),
+              ListTile(
+                title: const Text('Credential'),
+                subtitle: Text(MenuFormatters.credential(config)),
+              ),
+              ListTile(
+                title: const Text('Auto-topup'),
+                subtitle: Text(
+                  MenuFormatters.autoTopup(enabled: status?.autoTopup.enabled),
+                ),
+              ),
+              ListTile(
+                title: const Text('API'),
+                subtitle: Text(MenuFormatters.apiEnvironment()),
+              ),
+              ListTile(
+                title: const Text('About'),
+                subtitle: Text('RoamKit Device · ${AppConfig.apiBaseUrl}'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final view = _view;
+    final onPanel = Colors.white;
 
     return Scaffold(
+      backgroundColor: _panelColor,
       appBar: AppBar(
-        title: const Text('RoamKit Device'),
+        backgroundColor: _panelColor,
+        foregroundColor: onPanel,
+        elevation: 0,
+        title: const Text('RoamKit'),
         actions: [
           IconButton(
-            tooltip: 'ICCID spike (ADR 021)',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => IccidSpikePage(
-                    reader: ChannelIccidSpikeReader(),
-                  ),
-                ),
-              );
-            },
-            icon: const Icon(Icons.sim_card_outlined),
+            tooltip: 'Support menu',
+            onPressed: _openSupportMenu,
+            icon: const Icon(Icons.more_vert),
           ),
           IconButton(
-            tooltip: 'Reload',
+            tooltip: 'Reload status',
             onPressed: _loading ? null : _reload,
             icon: const Icon(Icons.refresh),
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Text('Device status', style: theme.textTheme.headlineSmall),
-          const SizedBox(height: 8),
-          Text(
-            'Status from RoamKit API using UEM managed credentials. '
-            'Credential is never stored or shown.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 20),
-          if (_loading) const LinearProgressIndicator(),
-          if (config != null) ...[
-            _InfoTile(
-              label: ManagedConfigKeys.deviceExternalId,
-              value: config.hasDeviceExternalId
-                  ? config.deviceExternalId!
-                  : 'missing',
-            ),
-            const SizedBox(height: 12),
-            _InfoTile(
-              label: 'Credential',
-              value: config.hasDeviceCredential ? 'present' : 'missing',
-            ),
-            const SizedBox(height: 20),
-          ],
-          if (_errorMessage != null) ...[
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.errorContainer,
-                borderRadius: BorderRadius.circular(8),
+      body: RefreshIndicator(
+        color: onPanel,
+        backgroundColor: _panelColor,
+        onRefresh: _reload,
+        child: Stack(
+          children: [
+            Semantics(
+              label: view.semanticsSummary ?? view.heroLabel,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(24, 32, 24, 48),
+                children: [
+                  if (view.surface == StatusSurface.slateLoading) ...[
+                    const SizedBox(height: 48),
+                    Center(
+                      child: Semantics(
+                        label: 'Loading eSIM status',
+                        child: CircularProgressIndicator(color: onPanel),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      view.heroLabel,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: onPanel,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 24),
+                    Text(
+                      view.heroLabel,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                        color: onPanel,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    if (view.errorDetail != null) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        view.errorDetail!,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: onPanel.withValues(alpha: 0.9),
+                        ),
+                      ),
+                    ],
+                    if (view.isSuccessSnapshot) ...[
+                      Builder(
+                        builder: (context) {
+                          final badge = buildPlanBadgeView(_status?.plan);
+                          if (badge == null) {
+                            return const SizedBox(height: 48);
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 28, bottom: 40),
+                            child: _PlanBadge(badge: badge, color: onPanel),
+                          );
+                        },
+                      ),
+                    ] else
+                      const SizedBox(height: 48),
+                    _StatusMetric(
+                      label: 'Data remaining',
+                      value: view.dataRemainingDisplay ?? '—',
+                      color: onPanel,
+                    ),
+                    const SizedBox(height: 28),
+                    _StatusMetric(
+                      label: 'Expires',
+                      value: view.expiresDisplay,
+                      color: onPanel,
+                    ),
+                    const SizedBox(height: 40),
+                    Text(
+                      formatUpdatedCaption(view.checkedAt),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: onPanel.withValues(alpha: 0.75),
+                      ),
+                    ),
+                  ],
+                ],
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  _errorMessage!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onErrorContainer,
-                  ),
+            ),
+            if (_loading && view.isSuccessSnapshot)
+              const Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: LinearProgressIndicator(
+                  minHeight: 2,
+                  backgroundColor: Colors.transparent,
+                  color: Colors.white70,
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
           ],
-          if (status != null) ...[
-            _InfoTile(label: 'eSIM status', value: status.esim.status),
-            const SizedBox(height: 12),
-            _InfoTile(
-              label: 'Data remaining',
-              value: status.usage.dataRemaining ?? '—',
+        ),
+      ),
+    );
+  }
+}
+
+class _PlanBadge extends StatelessWidget {
+  const _PlanBadge({required this.badge, required this.color});
+
+  final PlanBadgeView badge;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: [
+        badge.title,
+        if (badge.subtitle != null) badge.subtitle!,
+      ].join(', '),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 40,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: _PlanBadgeIcon(badge: badge, color: color),
             ),
-            const SizedBox(height: 12),
-            _InfoTile(
-              label: 'Data used',
-              value: status.usage.dataUsed ?? '—',
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  badge.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (badge.subtitle != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    badge.subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: color.withValues(alpha: 0.85),
+                    ),
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(height: 12),
-            _InfoTile(
-              label: 'Expiry',
-              value: status.usage.expiresAt?.toUtc().toIso8601String() ?? '—',
-            ),
-            const SizedBox(height: 12),
-            _InfoTile(
-              label: 'Auto-topup',
-              value: status.autoTopup.enabled ? 'enabled' : 'disabled',
-            ),
-            const SizedBox(height: 12),
-            _InfoTile(label: 'Binding', value: status.bindingStatus),
-            const SizedBox(height: 12),
-            _InfoTile(
-              label: 'Checked at',
-              value: status.checkedAt.toUtc().toIso8601String(),
-            ),
-          ],
+          ),
         ],
       ),
     );
   }
 }
 
-class _InfoTile extends StatelessWidget {
-  const _InfoTile({required this.label, required this.value});
+class _PlanBadgeIcon extends StatelessWidget {
+  const _PlanBadgeIcon({required this.badge, required this.color});
 
-  final String label;
-  final String value;
+  final PlanBadgeView badge;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: theme.textTheme.labelLarge),
-            const SizedBox(height: 8),
-            SelectableText(
-              value,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                fontFamily: 'monospace',
-              ),
-            ),
-          ],
+    switch (badge.iconKind) {
+      case PlanBadgeIconKind.flag:
+        return Text(
+          badge.flagEmoji ?? '🏳️',
+          style: const TextStyle(fontSize: 28, height: 1.1),
+        );
+      case PlanBadgeIconKind.regional:
+        return Icon(Icons.map_outlined, color: color, size: 28);
+      case PlanBadgeIconKind.globe:
+        return Icon(Icons.public, color: color, size: 28);
+      case PlanBadgeIconKind.neutral:
+        return Icon(Icons.sim_card_outlined, color: color, size: 28);
+    }
+  }
+}
+
+class _StatusMetric extends StatelessWidget {
+  const _StatusMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: color.withValues(alpha: 0.8),
+            letterSpacing: 0.4,
+          ),
         ),
-      ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

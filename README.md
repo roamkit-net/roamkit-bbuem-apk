@@ -17,44 +17,45 @@ reads:
   ↓
 POST /api/v1/device/status/
   ↓
-read-only eSIM / usage / expiry / auto-topup
+operational eSIM status (green / red / slate)
 ```
 
 ## Scope
 
 - Read Android managed configuration (no credential storage)
-- Show `Credential: present / missing` only (never plaintext)
-- Call `POST /api/v1/device/status/` with the two managed values
-- Show read-only status + loading / missing config / 404 / 429 / network errors
-- Reload config + status on managed-config change events
-- Never log or surface the credential in error messages
-- **ADR 021 spike (debug):** App bar → ICCID spike — read active/default data
-  subscription ICCID only (no API / no fleet credential / no PR18 contract change)
+- Show operational status panel: hero + plan badge + data remaining + expiry + updated time
+- Plan badge from API `plan` snapshot (flag / region / globe); hidden when `plan` is null
+- Support menu (read-only): binding, external id, credential present/missing, auto-topup, API env
+- Reload on managed-config change; single-flight refresh; failed refresh → slate error
+- Never log or surface the credential; never show ICCID on user surfaces
+- Plan badge is informational only — does not drive GREEN/RED
 
 Out of scope:
 
 - Org UI, billing mutations, binding management
 - BlackBerry/UEM sync / provisioning automation
 - Secure storage of credentials
-- ICCID-based status API (blocked until ADR 021 Accept)
+- Android home-screen App Widget (future PR)
+- Amber / low-data warning state
 
-## ICCID spike (ADR 021)
+## Status colors (locked)
 
-On a BlackBerry-managed device, open **ICCID spike** from the status app bar.
+| Surface | Color | When |
+|---------|-------|------|
+| GREEN | `#15803d` | `esim.status ∈ {activated, in_use}` + usable remaining + not expired |
+| RED | `#b91c1c` | Expired, no usable data, or inactive domain status |
+| SLATE | `#334155` | Loading, transport/config errors (never green/red) |
 
-| Field | Purpose |
-|-------|---------|
-| Android version / SDK | Device context |
-| Default data `subscriptionId` | Lookup target |
-| `READ_PHONE_STATE` | Permission gate |
-| Managed profile / owner flags | Work-profile / DPC context |
-| ICCID or failure reason | Proof result |
+GREEN statuses only: `activated`, `in_use`.
 
-Failure reasons: `permission_denied`, `no_default_data_subscription`,
-`iccid_unavailable`, `ambiguous_subscription`.
+Expiry: `expiresAt == null` is not expired (display `—`). `expiresAt <= now` → `EXPIRED`.
 
-First proof device (Pixel 6a / `staging@roamkit.net`): APK ICCID should match
-UEM report `8900424101001825931`, or the screen must show why it cannot.
+Hero labels (success): `ACTIVE` / `EXPIRED` / `NO DATA` / `EXHAUSTED` / `INACTIVE`.  
+Hero labels (error): `UNAVAILABLE` / `NO DATA` (ICCID miss) / `TRY LATER` / `OFFLINE` / `ERROR`.
+
+Success RED `NO DATA` (unusable remaining) is distinct from slate error `NO DATA` (ICCID miss).
+
+Color logic lives in pure Dart [`lib/status/operational_status_view.dart`](lib/status/operational_status_view.dart) (no Flutter imports) so a future home-screen widget can reuse it.
 
 ## Managed configuration keys
 
@@ -84,10 +85,11 @@ flutter build apk --debug --dart-define=ROAMKIT_API_BASE_URL=https://api.staging
 
 Application id: `net.roamkit.device`
 
+Launcher source art: `assets/branding/ic_launcher_source.png` (exported PNG; PSD is not in the repo).
+
 ## UEM notes
 
 1. Upload internal APK to BlackBerry UEM.
-2. App configuration values must come from API binding create/rotate
-   (not from the temporary channel-proof strings).
+2. App configuration values must come from API binding create/rotate.
 3. Assign app + configuration to the device.
 4. Open the app — status loads when both managed values are present and valid.

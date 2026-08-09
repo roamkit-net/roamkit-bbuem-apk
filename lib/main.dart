@@ -24,7 +24,7 @@ class RoamKitDeviceApp extends StatelessWidget {
     return MaterialApp(
       title: 'RoamKit Device',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0B3D2E)),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF15803D)),
         useMaterial3: true,
       ),
       home: DeviceStatusPage(
