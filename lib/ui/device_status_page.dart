@@ -28,6 +28,8 @@ class DeviceStatusPage extends StatefulWidget {
     this.coverageClient,
     this.now,
     this.snapshotStore,
+    this.foregroundRefreshInterval = const Duration(minutes: 10),
+    this.resumeDebounce = const Duration(seconds: 60),
   });
 
   final ManagedConfigReader reader;
@@ -40,11 +42,18 @@ class DeviceStatusPage extends StatefulWidget {
   /// Home-widget publisher; defaults to [HomeWidgetSnapshotStore].
   final WidgetSnapshotStore? snapshotStore;
 
+  /// One-shot delay after each completed reload while foreground.
+  final Duration foregroundRefreshInterval;
+
+  /// Skip resume auto-reload if last completed reload was more recent.
+  final Duration resumeDebounce;
+
   @override
   State<DeviceStatusPage> createState() => _DeviceStatusPageState();
 }
 
-class _DeviceStatusPageState extends State<DeviceStatusPage> {
+class _DeviceStatusPageState extends State<DeviceStatusPage>
+    with WidgetsBindingObserver {
   ManagedConfig? _config;
   DeviceStatus? _status;
   OperationalStatusView _view = OperationalStatusView.loading();
@@ -53,6 +62,8 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
   int _reloadGeneration = 0;
   int _widgetRevision = 0;
   StreamSubscription<ManagedConfig>? _subscription;
+  Timer? _foregroundTimer;
+  DateTime? _lastReloadCompletedAt;
   late final WidgetSnapshotStore _snapshotStore =
       widget.snapshotStore ?? const HomeWidgetSnapshotStore();
   late final DeviceCoverageClient _coverageClient =
@@ -63,25 +74,119 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
 
   DateTime _now() => widget.now?.call() ?? DateTime.now();
 
+  /// Null lifecycle (common before first callback / in tests) counts as resumed.
+  bool get _isResumed {
+    final state = WidgetsBinding.instance.lifecycleState;
+    return state == null || state == AppLifecycleState.resumed;
+  }
+
+  /// Test/debug: at most one one-shot timer may exist.
+  @visibleForTesting
+  bool get debugHasForegroundTimer => _foregroundTimer != null;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _subscription = widget.reader.changes.listen((_) {
       unawaited(_reload());
     });
+    // Do not arm timer here — only after a completed reload while resumed.
     unawaited(_reload());
   }
 
   @override
   void dispose() {
+    _cancelForegroundTimer();
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_subscription?.cancel());
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _maybeReloadOnResume();
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        _cancelForegroundTimer();
+    }
+  }
+
+  void _cancelForegroundTimer() {
+    _foregroundTimer?.cancel();
+    _foregroundTimer = null;
+  }
+
+  /// Arm a single one-shot timer. Cancels any previous timer first.
+  void _armForegroundTimer({Duration? delay}) {
+    _cancelForegroundTimer();
+    if (!mounted || !_isResumed) {
+      return;
+    }
+    final wait = delay ?? widget.foregroundRefreshInterval;
+    if (wait <= Duration.zero) {
+      unawaited(_reload());
+      return;
+    }
+    _foregroundTimer = Timer(wait, () {
+      _foregroundTimer = null;
+      if (!mounted || !_isResumed) {
+        return;
+      }
+      unawaited(_reload());
+    });
+  }
+
+  Duration _delayUntilNextForegroundRefresh() {
+    final last = _lastReloadCompletedAt;
+    if (last == null) {
+      return widget.foregroundRefreshInterval;
+    }
+    final now = _now();
+    if (now.isBefore(last)) {
+      // Clock rollback: treat cadence as expired.
+      return Duration.zero;
+    }
+    final remaining = widget.foregroundRefreshInterval - now.difference(last);
+    if (remaining <= Duration.zero) {
+      return Duration.zero;
+    }
+    return remaining;
+  }
+
+  void _maybeReloadOnResume() {
+    final last = _lastReloadCompletedAt;
+    if (last == null) {
+      unawaited(_reload());
+      return;
+    }
+    final now = _now();
+    if (now.isBefore(last) ||
+        now.difference(last) >= widget.resumeDebounce) {
+      unawaited(_reload());
+      return;
+    }
+    // Debounced: re-arm remaining time until next foreground refresh.
+    _armForegroundTimer(delay: _delayUntilNextForegroundRefresh());
+  }
+
+  void _onReloadCompleted() {
+    _lastReloadCompletedAt = _now();
+    if (!mounted || !_isResumed) {
+      return;
+    }
+    _armForegroundTimer();
   }
 
   Future<void> _reload() {
     // Single-flight: concurrent callers await the same request; clear when done.
     return _inFlight ??= _reloadBody().whenComplete(() {
       _inFlight = null;
+      _onReloadCompleted();
     });
   }
 
@@ -89,6 +194,9 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
     final generation = ++_reloadGeneration;
     final hadSuccess = _view.isSuccessSnapshot;
 
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _loading = true;
       if (!hadSuccess) {

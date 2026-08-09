@@ -27,6 +27,8 @@ operational eSIM status (green / red / slate)
 - Plan badge from API `plan` snapshot (flag / region / globe); hidden when `plan` is null
 - Support menu (read-only): binding, external id, credential present/missing, auto-topup, API env
 - Reload on managed-config change; single-flight refresh; failed refresh → slate error
+- Foreground auto-refresh: one-shot 10 min timer after each completed load while
+  resumed; resume reloads if ≥60s since last complete (no WorkManager)
 - Never log or surface the credential; never show ICCID on user surfaces
 - Plan badge is informational only — does not drive GREEN/RED
 - Android home-screen widgets (2×2 + 4×2) paint from the same Dart snapshot
