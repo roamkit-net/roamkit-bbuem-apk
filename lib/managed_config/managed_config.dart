@@ -27,7 +27,7 @@ class ManagedConfig {
   bool get hasDeviceCredential =>
       deviceCredential != null && deviceCredential!.trim().isNotEmpty;
 
-  /// PR18 credential pair (coverage and status fallback).
+  /// PR18 credential pair (status/coverage fallback).
   bool get hasPr18Auth => hasDeviceExternalId && hasDeviceCredential;
 
   /// Enough for status: serial preferred path, or PR18 fallback.

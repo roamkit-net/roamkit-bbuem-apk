@@ -8,13 +8,15 @@ import '../config/app_config.dart';
 import 'device_coverage.dart';
 import 'device_status_errors.dart';
 
-/// Fetches purchase-time coverage via opaque device credential.
+/// Fetches purchase-time coverage (ADR 021 Option C″).
 ///
-/// Same auth boundary as status. Never persists or logs the credential.
+/// Prefer [deviceSerial] → `{device_serial}`. Otherwise PR18
+/// [deviceExternalId] + [credential]. Same auth boundary as status.
 abstract class DeviceCoverageClient {
   Future<DeviceCoverage> fetchCoverage({
-    required String deviceExternalId,
-    required String credential,
+    String? deviceSerial,
+    String? deviceExternalId,
+    String? credential,
   });
 }
 
@@ -33,9 +35,16 @@ class HttpDeviceCoverageClient implements DeviceCoverageClient {
 
   @override
   Future<DeviceCoverage> fetchCoverage({
-    required String deviceExternalId,
-    required String credential,
+    String? deviceSerial,
+    String? deviceExternalId,
+    String? credential,
   }) async {
+    final body = _encodeBody(
+      deviceSerial: deviceSerial,
+      deviceExternalId: deviceExternalId,
+      credential: credential,
+    );
+
     late final http.Response response;
     try {
       response = await _http
@@ -45,10 +54,7 @@ class HttpDeviceCoverageClient implements DeviceCoverageClient {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
             },
-            body: jsonEncode({
-              'device_external_id': deviceExternalId,
-              'credential': credential,
-            }),
+            body: body,
           )
           .timeout(const Duration(seconds: 20));
     } on SocketException catch (error) {
@@ -105,5 +111,27 @@ class HttpDeviceCoverageClient implements DeviceCoverageClient {
           'Coverage request failed (HTTP ${response.statusCode}).',
         );
     }
+  }
+
+  static String _encodeBody({
+    String? deviceSerial,
+    String? deviceExternalId,
+    String? credential,
+  }) {
+    final serial = deviceSerial?.trim();
+    if (serial != null && serial.isNotEmpty) {
+      return jsonEncode({'device_serial': serial});
+    }
+    final externalId = deviceExternalId?.trim() ?? '';
+    final secret = credential ?? '';
+    if (externalId.isEmpty || secret.isEmpty) {
+      throw const DeviceStatusUnexpectedException(
+        'Coverage request missing device_serial or PR18 credentials.',
+      );
+    }
+    return jsonEncode({
+      'device_external_id': externalId,
+      'credential': secret,
+    });
   }
 }
