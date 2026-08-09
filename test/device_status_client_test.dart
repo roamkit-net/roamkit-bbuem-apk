@@ -27,6 +27,14 @@ void main() {
               'expires_at': '2026-09-01T00:00:00Z',
             },
             'auto_topup': {'enabled': true},
+            'plan': {
+              'title': 'Cronet (Croatia)',
+              'data_allowance': 'Unlimited',
+              'validity_days': 3,
+              'country_code': 'HR',
+              'coverage_type': 'local',
+              'location_title': 'Croatia',
+            },
             'checked_at': '2026-08-09T00:00:00Z',
           }),
           200,
@@ -48,6 +56,8 @@ void main() {
     expect(status.esim.status, 'ACTIVE');
     expect(status.usage.dataRemaining, '100 MB');
     expect(status.autoTopup.enabled, isTrue);
+    expect(status.plan?.title, 'Cronet (Croatia)');
+    expect(status.plan?.coverageType, 'local');
   });
 
   test('maps 404 with code=iccid_not_found to ICCID miss message', () async {

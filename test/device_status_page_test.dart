@@ -36,6 +36,7 @@ class _FakeStatusClient implements DeviceStatusClient {
   DeviceStatusException? error;
   int calls = 0;
   String? lastCredential;
+  Completer<DeviceStatus>? delay;
 
   @override
   Future<DeviceStatus> fetchStatus({
@@ -44,6 +45,9 @@ class _FakeStatusClient implements DeviceStatusClient {
   }) async {
     calls += 1;
     lastCredential = credential;
+    if (delay != null) {
+      return delay!.future;
+    }
     if (error != null) {
       throw error!;
     }
@@ -51,23 +55,55 @@ class _FakeStatusClient implements DeviceStatusClient {
   }
 }
 
-DeviceStatus _sampleStatus() {
+const _testIccid = '8900424101001825931';
+
+DeviceStatus _sampleStatus({
+  String esimStatus = 'in_use',
+  String? dataRemaining = '12 MB',
+  DateTime? expiresAt,
+  DeviceStatusPlan? plan = const DeviceStatusPlan(
+    title: 'Cronet (Croatia)',
+    dataAllowance: 'Unlimited',
+    validityDays: 3,
+    countryCode: 'HR',
+    coverageType: 'local',
+  ),
+}) {
   return DeviceStatus(
     deviceExternalId: 'dev-1',
     bindingStatus: 'active',
-    esim: const DeviceStatusEsim(id: 9, iccid: '8910', status: 'ACTIVE'),
+    esim: DeviceStatusEsim(id: 9, iccid: _testIccid, status: esimStatus),
     usage: DeviceStatusUsage(
-      dataRemaining: '12 MB',
+      dataRemaining: dataRemaining,
       dataUsed: '88 MB',
-      expiresAt: DateTime.utc(2026, 9, 1),
+      expiresAt: expiresAt ?? DateTime.utc(2026, 9, 1),
     ),
     autoTopup: const DeviceStatusAutoTopup(enabled: true),
-    checkedAt: DateTime.utc(2026, 8, 9),
+    plan: plan,
+    checkedAt: DateTime.utc(2026, 8, 9, 14, 21),
   );
 }
 
+Future<void> _pumpPage(
+  WidgetTester tester, {
+  required _FakeReader reader,
+  required _FakeStatusClient client,
+  DateTime Function()? now,
+}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: DeviceStatusPage(
+        reader: reader,
+        statusClient: client,
+        now: now ?? () => DateTime.utc(2026, 8, 9, 12),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  testWidgets('shows status and never renders plaintext credential', (
+  testWidgets('GREEN ACTIVE and never renders credential or ICCID', (
     tester,
   ) async {
     const secret = 'plain-secret-must-not-appear';
@@ -80,44 +116,86 @@ void main() {
     final client = _FakeStatusClient(status: _sampleStatus());
     addTearDown(reader.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: DeviceStatusPage(reader: reader, statusClient: client),
-      ),
-    );
-    await tester.pumpAndSettle();
+    await _pumpPage(tester, reader: reader, client: client);
 
-    expect(find.text('Credential'), findsOneWidget);
-    expect(find.text('present'), findsOneWidget);
-    expect(find.text(secret), findsNothing);
     expect(find.text('ACTIVE'), findsOneWidget);
     expect(find.text('12 MB'), findsOneWidget);
-    expect(find.text('Auto-topup', skipOffstage: false), findsOneWidget);
-    expect(find.text('enabled', skipOffstage: false), findsOneWidget);
+    expect(find.text('Cronet (Croatia)'), findsOneWidget);
+    expect(find.text('Unlimited · 3 days'), findsOneWidget);
+    expect(find.text('🇭🇷'), findsOneWidget);
+    expect(find.text(secret), findsNothing);
+    expect(find.text(_testIccid), findsNothing);
+    expect(find.textContaining('ICCID'), findsNothing);
+
+    await tester.tap(find.byTooltip('Support menu'));
+    await tester.pumpAndSettle();
+    expect(find.text('Credential'), findsOneWidget);
+    expect(find.text('Present'), findsOneWidget);
+    expect(find.text('Auto-topup'), findsOneWidget);
+    expect(find.text('Enabled'), findsOneWidget);
+    expect(find.text(secret), findsNothing);
+    expect(find.text(_testIccid), findsNothing);
     expect(client.calls, 1);
     expect(client.lastCredential, secret);
   });
 
-  testWidgets('shows missing managed config state', (tester) async {
+  testWidgets('success RED NO DATA for zero remaining', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(
+      status: _sampleStatus(dataRemaining: '0 MB'),
+    );
+    addTearDown(reader.dispose);
+
+    await _pumpPage(tester, reader: reader, client: client);
+    expect(find.text('NO DATA'), findsOneWidget);
+    expect(find.text('No RoamKit data for this device'), findsNothing);
+  });
+
+  testWidgets('slate ICCID NO DATA is distinct from success NO DATA', (
+    tester,
+  ) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(
+      error: const DeviceStatusIccidNotFoundException(),
+    );
+    addTearDown(reader.dispose);
+
+    await _pumpPage(tester, reader: reader, client: client);
+    expect(find.text('NO DATA'), findsOneWidget);
+    expect(find.text('No RoamKit data for this device'), findsOneWidget);
+    expect(find.text('ACTIVE'), findsNothing);
+  });
+
+  testWidgets('missing managed config is slate UNAVAILABLE', (tester) async {
     final reader = _FakeReader(
       const ManagedConfig(deviceExternalId: null, deviceCredential: null),
     );
     final client = _FakeStatusClient(status: _sampleStatus());
     addTearDown(reader.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: DeviceStatusPage(reader: reader, statusClient: client),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('missing'), findsNWidgets(2));
-    expect(find.textContaining('Managed configuration incomplete'), findsOneWidget);
+    await _pumpPage(tester, reader: reader, client: client);
+    expect(find.text('UNAVAILABLE'), findsOneWidget);
+    expect(find.text('Waiting for managed configuration'), findsOneWidget);
     expect(client.calls, 0);
+
+    await tester.tap(find.byTooltip('Support menu'));
+    await tester.pumpAndSettle();
+    expect(find.text('Missing'), findsOneWidget);
   });
 
-  testWidgets('shows 404 and reloads on managed config change', (tester) async {
+  testWidgets('404 UNAVAILABLE and reload on managed config change', (
+    tester,
+  ) async {
     final reader = _FakeReader(
       const ManagedConfig(
         deviceExternalId: 'dev-1',
@@ -129,13 +207,8 @@ void main() {
     );
     addTearDown(reader.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: DeviceStatusPage(reader: reader, statusClient: client),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.textContaining('not found'), findsOneWidget);
+    await _pumpPage(tester, reader: reader, client: client);
+    expect(find.text('UNAVAILABLE'), findsOneWidget);
     expect(client.calls, 1);
 
     client
@@ -156,7 +229,7 @@ void main() {
     expect(find.text('secret-b'), findsNothing);
   });
 
-  testWidgets('shows rate-limit and network errors', (tester) async {
+  testWidgets('rate limit TRY LATER and network OFFLINE', (tester) async {
     final reader = _FakeReader(
       const ManagedConfig(
         deviceExternalId: 'dev-1',
@@ -168,18 +241,181 @@ void main() {
     );
     addTearDown(reader.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: DeviceStatusPage(reader: reader, statusClient: client),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.textContaining('Too many status requests'), findsOneWidget);
+    await _pumpPage(tester, reader: reader, client: client);
+    expect(find.text('TRY LATER'), findsOneWidget);
 
     client.error = DeviceStatusNetworkException('DNS lookup failed');
-    await tester.tap(find.byTooltip('Reload'));
+    await tester.tap(find.byTooltip('Reload status'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Network error'), findsOneWidget);
-    expect(find.textContaining('DNS lookup failed'), findsOneWidget);
+    expect(find.text('OFFLINE'), findsOneWidget);
+    expect(find.text('Network error'), findsOneWidget);
+  });
+
+  testWidgets('failed refresh clears stale GREEN to slate error', (
+    tester,
+  ) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    addTearDown(reader.dispose);
+
+    await _pumpPage(tester, reader: reader, client: client);
+    expect(find.text('ACTIVE'), findsOneWidget);
+
+    client
+      ..status = null
+      ..error = DeviceStatusNetworkException('down');
+    await tester.tap(find.byTooltip('Reload status'));
+    await tester.pumpAndSettle();
+    expect(find.text('ACTIVE'), findsNothing);
+    expect(find.text('OFFLINE'), findsOneWidget);
+  });
+
+  testWidgets('single-flight reload does not double-fetch', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final delay = Completer<DeviceStatus>();
+    final client = _FakeStatusClient(status: _sampleStatus())..delay = delay;
+    addTearDown(reader.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeviceStatusPage(
+          reader: reader,
+          statusClient: client,
+          now: () => DateTime.utc(2026, 8, 9, 12),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(client.calls, 1);
+
+    // Managed-config change during in-flight load must join the same request.
+    reader.emit(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    await tester.pump();
+    expect(client.calls, 1);
+
+    delay.complete(_sampleStatus());
+    await tester.pumpAndSettle();
+    expect(find.text('ACTIVE'), findsOneWidget);
+  });
+
+  testWidgets('plan null hides badge', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus(plan: null));
+    addTearDown(reader.dispose);
+
+    await _pumpPage(tester, reader: reader, client: client);
+    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text('Cronet (Croatia)'), findsNothing);
+    expect(find.textContaining('·'), findsNothing);
+  });
+
+  testWidgets('long plan title uses ellipsis', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    const longTitle =
+        'European Union and United Kingdom Mega Regional Roaming Pack Extra';
+    final client = _FakeStatusClient(
+      status: _sampleStatus(
+        plan: const DeviceStatusPlan(
+          title: longTitle,
+          dataAllowance: '5 GB',
+          validityDays: 30,
+          coverageType: 'regional',
+        ),
+      ),
+    );
+    addTearDown(reader.dispose);
+
+    await _pumpPage(tester, reader: reader, client: client);
+    final title = tester.widget<Text>(find.text(longTitle));
+    expect(title.maxLines, 1);
+    expect(title.overflow, TextOverflow.ellipsis);
+    expect(find.byIcon(Icons.map_outlined), findsOneWidget);
+  });
+
+  testWidgets('global plan shows globe icon', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(
+      status: _sampleStatus(
+        plan: const DeviceStatusPlan(
+          title: 'Discover',
+          dataAllowance: '300 MB',
+          validityDays: 3,
+          coverageType: 'global',
+        ),
+      ),
+    );
+    addTearDown(reader.dispose);
+
+    await _pumpPage(tester, reader: reader, client: client);
+    expect(find.text('Discover'), findsOneWidget);
+    expect(find.byIcon(Icons.public), findsOneWidget);
+  });
+
+  testWidgets('Updated caption uses local time from UTC checkedAt', (
+    tester,
+  ) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final checkedAt = DateTime.utc(2026, 8, 9, 14, 21);
+    final client = _FakeStatusClient(
+      status: DeviceStatus(
+        deviceExternalId: 'dev-1',
+        bindingStatus: 'active',
+        esim: const DeviceStatusEsim(
+          id: 1,
+          iccid: _testIccid,
+          status: 'in_use',
+        ),
+        usage: DeviceStatusUsage(
+          dataRemaining: '1.2 GB',
+          dataUsed: '0 MB',
+          expiresAt: DateTime.utc(2026, 9, 1),
+        ),
+        autoTopup: const DeviceStatusAutoTopup(enabled: false),
+        checkedAt: checkedAt,
+      ),
+    );
+    addTearDown(reader.dispose);
+
+    await _pumpPage(tester, reader: reader, client: client);
+    final local = checkedAt.toLocal();
+    final expected =
+        'Updated ${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
+    expect(find.text(expected), findsOneWidget);
   });
 }

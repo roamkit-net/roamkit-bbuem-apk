@@ -33,7 +33,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('RoamKit Device'), findsWidgets);
-    expect(find.text('Device status'), findsOneWidget);
+    expect(find.text('RoamKit'), findsOneWidget);
+    expect(find.text('UNAVAILABLE'), findsOneWidget);
   });
 }
