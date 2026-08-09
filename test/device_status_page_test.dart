@@ -8,6 +8,7 @@ import 'package:roamkit_device/api/device_status_errors.dart';
 import 'package:roamkit_device/managed_config/managed_config.dart';
 import 'package:roamkit_device/managed_config/managed_config_reader.dart';
 import 'package:roamkit_device/ui/device_status_page.dart';
+import 'package:roamkit_device/widget/widget_snapshot_store.dart';
 
 class _FakeReader implements ManagedConfigReader {
   _FakeReader(this._config);
@@ -89,6 +90,7 @@ Future<void> _pumpPage(
   required _FakeReader reader,
   required _FakeStatusClient client,
   DateTime Function()? now,
+  WidgetSnapshotStore? snapshotStore,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -96,6 +98,7 @@ Future<void> _pumpPage(
         reader: reader,
         statusClient: client,
         now: now ?? () => DateTime.utc(2026, 8, 9, 12),
+        snapshotStore: snapshotStore ?? NoopWidgetSnapshotStore(),
       ),
     ),
   );
@@ -292,6 +295,7 @@ void main() {
           reader: reader,
           statusClient: client,
           now: () => DateTime.utc(2026, 8, 9, 12),
+          snapshotStore: NoopWidgetSnapshotStore(),
         ),
       ),
     );
@@ -311,6 +315,102 @@ void main() {
     delay.complete(_sampleStatus());
     await tester.pumpAndSettle();
     expect(find.text('ACTIVE'), findsOneWidget);
+  });
+
+  testWidgets('publishes widget snapshot on success not during in-flight', (
+    tester,
+  ) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final delay = Completer<DeviceStatus>();
+    final client = _FakeStatusClient(status: _sampleStatus())..delay = delay;
+    final store = RecordingWidgetSnapshotStore();
+    addTearDown(reader.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeviceStatusPage(
+          reader: reader,
+          statusClient: client,
+          now: () => DateTime.utc(2026, 8, 9, 12),
+          snapshotStore: store,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(store.published, isEmpty);
+
+    delay.complete(_sampleStatus());
+    await tester.pumpAndSettle();
+    expect(store.published, isNotEmpty);
+    expect(store.published.last.surface, 'green');
+    expect(store.published.last.hero, 'ACTIVE');
+    expect(store.published.last.planTitle, 'Cronet (Croatia)');
+  });
+
+  testWidgets('publishes slate snapshot on error', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(
+      error: DeviceStatusNetworkException('down'),
+    );
+    final store = RecordingWidgetSnapshotStore();
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      snapshotStore: store,
+    );
+    expect(store.published, isNotEmpty);
+    expect(store.published.last.surface, 'slateError');
+    expect(store.published.last.hero, 'OFFLINE');
+  });
+
+  testWidgets('in-flight refresh does not publish over prior snapshot', (
+    tester,
+  ) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    final store = RecordingWidgetSnapshotStore();
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      snapshotStore: store,
+    );
+    expect(store.published.length, 1);
+    expect(store.published.single.hero, 'ACTIVE');
+
+    final delay = Completer<DeviceStatus>();
+    client.delay = delay;
+    await tester.tap(find.byTooltip('Reload status'));
+    await tester.pump();
+    expect(store.published.length, 1);
+    expect(store.published.single.surface, isNot('slateLoading'));
+
+    delay.complete(
+      _sampleStatus(dataRemaining: '1 GB'),
+    );
+    await tester.pumpAndSettle();
+    expect(store.published.length, 2);
+    expect(store.published.last.remaining, '1 GB');
   });
 
   testWidgets('plan null hides badge', (tester) async {
