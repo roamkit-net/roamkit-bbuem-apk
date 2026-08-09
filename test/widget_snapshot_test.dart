@@ -1,12 +1,23 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:roamkit_device/api/device_status.dart';
-import 'package:roamkit_device/api/device_status_errors.dart';
-import 'package:roamkit_device/status/operational_status_view.dart';
-import 'package:roamkit_device/status/plan_badge.dart';
-import 'package:roamkit_device/widget/widget_snapshot.dart';
+import 'package:roamkit_bbuem_apk/api/device_status.dart';
+import 'package:roamkit_bbuem_apk/api/device_status_errors.dart';
+import 'package:roamkit_bbuem_apk/status/operational_status_view.dart';
+import 'package:roamkit_bbuem_apk/status/plan_badge.dart';
+import 'package:roamkit_bbuem_apk/widget/widget_snapshot.dart';
 
 void main() {
   final now = DateTime.utc(2026, 8, 9, 12);
+
+  test('home_widget provider FQCNs use net.roamkit.bbuem', () {
+    expect(
+      WidgetSnapshot.compactProvider,
+      'net.roamkit.bbuem.RoamKitCompactWidgetProvider',
+    );
+    expect(
+      WidgetSnapshot.wideProvider,
+      'net.roamkit.bbuem.RoamKitWideWidgetProvider',
+    );
+  });
 
   OperationalStatusView greenView() {
     return evaluateOperationalView(

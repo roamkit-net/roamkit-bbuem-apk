@@ -16,9 +16,9 @@ class ChannelManagedConfigReader implements ManagedConfigReader {
     MethodChannel? methodChannel,
     EventChannel? eventChannel,
   })  : _methodChannel =
-            methodChannel ?? const MethodChannel('net.roamkit.device/managed_config'),
+            methodChannel ?? const MethodChannel('net.roamkit.bbuem/managed_config'),
         _eventChannel = eventChannel ??
-            const EventChannel('net.roamkit.device/managed_config_events');
+            const EventChannel('net.roamkit.bbuem/managed_config_events');
 
   final MethodChannel _methodChannel;
   final EventChannel _eventChannel;

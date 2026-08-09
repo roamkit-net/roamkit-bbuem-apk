@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:roamkit_device/api/device_status.dart';
-import 'package:roamkit_device/status/operational_status_view.dart';
-import 'package:roamkit_device/status/plan_badge.dart';
+import 'package:roamkit_bbuem_apk/api/device_status.dart';
+import 'package:roamkit_bbuem_apk/status/operational_status_view.dart';
+import 'package:roamkit_bbuem_apk/status/plan_badge.dart';
 
 void main() {
   group('formatPlanSubtitle', () {

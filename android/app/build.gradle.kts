@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "net.roamkit.device"
+    namespace = "net.roamkit.bbuem"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,7 +20,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "net.roamkit.device"
+        applicationId = "net.roamkit.bbuem"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

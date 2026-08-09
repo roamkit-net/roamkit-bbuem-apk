@@ -1,4 +1,4 @@
-package net.roamkit.device
+package net.roamkit.bbuem
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager

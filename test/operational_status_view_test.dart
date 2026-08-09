@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:roamkit_device/api/device_status.dart';
-import 'package:roamkit_device/api/device_status_errors.dart';
-import 'package:roamkit_device/status/menu_formatters.dart';
-import 'package:roamkit_device/status/operational_status_view.dart';
-import 'package:roamkit_device/status/remaining_parser.dart';
-import 'package:roamkit_device/managed_config/managed_config.dart';
+import 'package:roamkit_bbuem_apk/api/device_status.dart';
+import 'package:roamkit_bbuem_apk/api/device_status_errors.dart';
+import 'package:roamkit_bbuem_apk/status/menu_formatters.dart';
+import 'package:roamkit_bbuem_apk/status/operational_status_view.dart';
+import 'package:roamkit_bbuem_apk/status/remaining_parser.dart';
+import 'package:roamkit_bbuem_apk/managed_config/managed_config.dart';
 
 DeviceStatus _status({
   String esimStatus = 'in_use',

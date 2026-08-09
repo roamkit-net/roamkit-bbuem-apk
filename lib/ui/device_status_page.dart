@@ -380,7 +380,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
               ),
               ListTile(
                 title: const Text('About'),
-                subtitle: Text('RoamKit Device · ${AppConfig.apiBaseUrl}'),
+                subtitle: Text('RoamKit · ${AppConfig.apiBaseUrl}'),
               ),
             ],
           ),

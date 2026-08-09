@@ -27,8 +27,8 @@ class WidgetSnapshot {
   static const storageKey = 'widget_snapshot_v1';
 
   static const compactProvider =
-      'net.roamkit.device.RoamKitCompactWidgetProvider';
-  static const wideProvider = 'net.roamkit.device.RoamKitWideWidgetProvider';
+      'net.roamkit.bbuem.RoamKitCompactWidgetProvider';
+  static const wideProvider = 'net.roamkit.bbuem.RoamKitWideWidgetProvider';
 
   final int schema;
   final int revision;

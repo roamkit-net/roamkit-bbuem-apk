@@ -1,4 +1,4 @@
-# roamkit-device
+# roamkit-bbuem-apk
 
 Flutter/Android app for RoamKit managed devices (BlackBerry UEM / Android Enterprise).
 
@@ -9,7 +9,7 @@ BlackBerry UEM
   ↓
 managed app configuration
   ↓
-RoamKit APK (net.roamkit.device)
+RoamKit APK (net.roamkit.bbuem)
   ↓
 reads:
   roamkit.device_external_id
@@ -112,7 +112,7 @@ flutter run --dart-define=ROAMKIT_API_BASE_URL=https://api.staging.roamkit.net
 flutter build apk --debug --dart-define=ROAMKIT_API_BASE_URL=https://api.staging.roamkit.net
 ```
 
-Application id: `net.roamkit.device`
+Application id: `net.roamkit.bbuem`
 
 Launcher source art: `assets/branding/ic_launcher_source.png` (exported PNG; PSD is not in the repo).
 

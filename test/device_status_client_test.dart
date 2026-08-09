@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:roamkit_device/api/device_status_client.dart';
-import 'package:roamkit_device/api/device_status_errors.dart';
+import 'package:roamkit_bbuem_apk/api/device_status_client.dart';
+import 'package:roamkit_bbuem_apk/api/device_status_errors.dart';
 
 void main() {
   const externalId = 'b8e6b629-abc1-4554-a0b1-77946afcf4a2';
