@@ -119,4 +119,47 @@ void main() {
     expect(shortExpiresLabel('12 Aug 2026'), '12 Aug');
     expect(shortExpiresLabel('—'), '—');
   });
+
+  test('widget_snapshot_v1 contract unchanged (no coverage keys)', () {
+    final plan = buildPlanBadgeView(
+      const DeviceStatusPlan(
+        title: 'Europe',
+        dataAllowance: '5 GB',
+        validityDays: 30,
+        coverageType: 'regional',
+        coverageSummary: DeviceStatusCoverageSummary(
+          available: true,
+          countryCount: 120,
+        ),
+      ),
+    );
+    final snap = WidgetSnapshot.fromViews(
+      view: greenView(),
+      plan: plan,
+      revision: 1,
+      generatedAt: now,
+    );
+    final keys = snap.toJson().keys.toSet();
+    expect(
+      keys,
+      {
+        'schema',
+        'revision',
+        'surface',
+        'hero',
+        'remaining',
+        'expires',
+        'plan_title',
+        'plan_subtitle',
+        'plan_flag',
+        'plan_icon',
+        'detail',
+        'generated_at',
+      },
+    );
+    expect(keys.contains('coverage'), isFalse);
+    expect(keys.contains('coverage_summary'), isFalse);
+    expect(keys.contains('operators'), isFalse);
+    expect(snap.toJsonString().contains('coverage'), isFalse);
+  });
 }

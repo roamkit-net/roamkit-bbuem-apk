@@ -30,6 +30,8 @@ operational eSIM status (green / red / slate)
 - Never log or surface the credential; never show ICCID on user surfaces
 - Plan badge is informational only — does not drive GREEN/RED
 - Android home-screen widgets (2×2 + 4×2) paint from the same Dart snapshot
+- Coverage screen (regional/global): countries + operators from
+  `POST /api/v1/device/coverage/` (not on the home-screen widget)
 
 Out of scope:
 
