@@ -111,6 +111,24 @@ class DeviceStatusAutoTopup {
   }
 }
 
+/// Light coverage affordance from status (no country list).
+class DeviceStatusCoverageSummary {
+  const DeviceStatusCoverageSummary({
+    required this.available,
+    required this.countryCount,
+  });
+
+  final bool available;
+  final int countryCount;
+
+  factory DeviceStatusCoverageSummary.fromJson(Map<String, dynamic> json) {
+    return DeviceStatusCoverageSummary(
+      available: json['available'] == true,
+      countryCount: (json['country_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 /// Purchase-time plan metadata from Order snapshot (nullable on parent).
 class DeviceStatusPlan {
   const DeviceStatusPlan({
@@ -120,6 +138,7 @@ class DeviceStatusPlan {
     this.countryCode,
     this.coverageType,
     this.locationTitle,
+    this.coverageSummary,
   });
 
   final String? title;
@@ -128,8 +147,10 @@ class DeviceStatusPlan {
   final String? countryCode;
   final String? coverageType;
   final String? locationTitle;
+  final DeviceStatusCoverageSummary? coverageSummary;
 
   factory DeviceStatusPlan.fromJson(Map<String, dynamic> json) {
+    final summaryRaw = json['coverage_summary'];
     return DeviceStatusPlan(
       title: _asNullableString(json['title']),
       dataAllowance: _asNullableString(json['data_allowance']),
@@ -137,6 +158,11 @@ class DeviceStatusPlan {
       countryCode: _asNullableString(json['country_code']),
       coverageType: _asNullableString(json['coverage_type']),
       locationTitle: _asNullableString(json['location_title']),
+      coverageSummary: summaryRaw is Map
+          ? DeviceStatusCoverageSummary.fromJson(
+              Map<String, dynamic>.from(summaryRaw),
+            )
+          : null,
     );
   }
 }

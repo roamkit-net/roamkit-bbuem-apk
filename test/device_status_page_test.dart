@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:roamkit_device/api/device_coverage.dart';
+import 'package:roamkit_device/api/device_coverage_client.dart';
 import 'package:roamkit_device/api/device_status.dart';
 import 'package:roamkit_device/api/device_status_client.dart';
 import 'package:roamkit_device/api/device_status_errors.dart';
@@ -56,6 +58,34 @@ class _FakeStatusClient implements DeviceStatusClient {
   }
 }
 
+class _FakeCoverageClient implements DeviceCoverageClient {
+  _FakeCoverageClient();
+
+  DeviceCoverage? coverage;
+  int calls = 0;
+
+  @override
+  Future<DeviceCoverage> fetchCoverage({
+    required String deviceExternalId,
+    required String credential,
+  }) async {
+    calls += 1;
+    return coverage ??
+        DeviceCoverage(
+          deviceExternalId: deviceExternalId,
+          coverageType: 'regional',
+          coverage: const [
+            DeviceCoverageCountry(
+              countryCode: 'HR',
+              countryName: 'Croatia',
+              operators: ['A1'],
+            ),
+          ],
+          checkedAt: DateTime.utc(2026, 8, 9),
+        );
+  }
+}
+
 const _testIccid = '8900424101001825931';
 
 DeviceStatus _sampleStatus({
@@ -91,12 +121,14 @@ Future<void> _pumpPage(
   required _FakeStatusClient client,
   DateTime Function()? now,
   WidgetSnapshotStore? snapshotStore,
+  DeviceCoverageClient? coverageClient,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
       home: DeviceStatusPage(
         reader: reader,
         statusClient: client,
+        coverageClient: coverageClient ?? _FakeCoverageClient(),
         now: now ?? () => DateTime.utc(2026, 8, 9, 12),
         snapshotStore: snapshotStore ?? NoopWidgetSnapshotStore(),
       ),
@@ -294,6 +326,7 @@ void main() {
         home: DeviceStatusPage(
           reader: reader,
           statusClient: client,
+          coverageClient: _FakeCoverageClient(),
           now: () => DateTime.utc(2026, 8, 9, 12),
           snapshotStore: NoopWidgetSnapshotStore(),
         ),
@@ -336,6 +369,7 @@ void main() {
         home: DeviceStatusPage(
           reader: reader,
           statusClient: client,
+          coverageClient: _FakeCoverageClient(),
           now: () => DateTime.utc(2026, 8, 9, 12),
           snapshotStore: store,
         ),
@@ -411,6 +445,79 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.published.length, 2);
     expect(store.published.last.remaining, '1 GB');
+  });
+
+  testWidgets('regional coverage shows affordance and opens Coverage screen', (
+    tester,
+  ) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(
+      status: _sampleStatus(
+        plan: const DeviceStatusPlan(
+          title: 'Europe',
+          dataAllowance: '5 GB',
+          validityDays: 30,
+          coverageType: 'regional',
+          coverageSummary: DeviceStatusCoverageSummary(
+            available: true,
+            countryCount: 2,
+          ),
+        ),
+      ),
+    );
+    final coverage = _FakeCoverageClient();
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      coverageClient: coverage,
+    );
+    expect(find.text('View coverage'), findsOneWidget);
+
+    await tester.tap(find.text('View coverage'));
+    await tester.pumpAndSettle();
+    expect(find.text('Coverage'), findsOneWidget);
+    expect(find.text('Croatia'), findsOneWidget);
+    expect(coverage.calls, 1);
+  });
+
+  testWidgets('local plan does not show Coverage entry', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(
+      status: _sampleStatus(
+        plan: const DeviceStatusPlan(
+          title: 'Cronet (Croatia)',
+          dataAllowance: 'Unlimited',
+          validityDays: 3,
+          countryCode: 'HR',
+          coverageType: 'local',
+          coverageSummary: DeviceStatusCoverageSummary(
+            available: false,
+            countryCount: 1,
+          ),
+        ),
+      ),
+    );
+    addTearDown(reader.dispose);
+
+    await _pumpPage(tester, reader: reader, client: client);
+    expect(find.text('View coverage'), findsNothing);
+
+    await tester.tap(find.byTooltip('Support menu'));
+    await tester.pumpAndSettle();
+    expect(find.text('Coverage'), findsNothing);
   });
 
   testWidgets('plan null hides badge', (tester) async {

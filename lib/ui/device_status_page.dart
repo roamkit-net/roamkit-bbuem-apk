@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../api/device_coverage_client.dart';
 import '../api/device_status.dart';
 import '../api/device_status_client.dart';
 import '../api/device_status_errors.dart';
@@ -13,6 +14,7 @@ import '../status/operational_status_view.dart';
 import '../status/plan_badge.dart';
 import '../widget/widget_snapshot.dart';
 import '../widget/widget_snapshot_store.dart';
+import 'device_coverage_page.dart';
 
 /// Reads UEM managed config and shows operational eSIM status.
 ///
@@ -23,12 +25,14 @@ class DeviceStatusPage extends StatefulWidget {
     super.key,
     required this.reader,
     required this.statusClient,
+    this.coverageClient,
     this.now,
     this.snapshotStore,
   });
 
   final ManagedConfigReader reader;
   final DeviceStatusClient statusClient;
+  final DeviceCoverageClient? coverageClient;
 
   /// Clock injection for tests; defaults to [DateTime.now].
   final DateTime Function()? now;
@@ -51,6 +55,11 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
   StreamSubscription<ManagedConfig>? _subscription;
   late final WidgetSnapshotStore _snapshotStore =
       widget.snapshotStore ?? const HomeWidgetSnapshotStore();
+  late final DeviceCoverageClient _coverageClient =
+      widget.coverageClient ?? HttpDeviceCoverageClient();
+
+  bool get _coverageAvailable =>
+      _status?.plan?.coverageSummary?.available == true;
 
   DateTime _now() => widget.now?.call() ?? DateTime.now();
 
@@ -198,17 +207,47 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
     };
   }
 
+  void _openCoverage() {
+    final config = _config;
+    if (config == null || !config.isComplete) {
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DeviceCoveragePage(
+          deviceExternalId: config.deviceExternalId!,
+          credential: config.deviceCredential!,
+          coverageClient: _coverageClient,
+        ),
+      ),
+    );
+  }
+
   void _openSupportMenu() {
     final config = _config;
     final status = _status;
+    final showCoverage = _coverageAvailable;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) {
+      builder: (sheetContext) {
         return SafeArea(
           child: ListView(
             shrinkWrap: true,
             children: [
+              if (showCoverage)
+                ListTile(
+                  title: const Text('Coverage'),
+                  subtitle: Text(
+                    '${status?.plan?.coverageSummary?.countryCount ?? 0} '
+                    'countries',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _openCoverage();
+                  },
+                ),
               ListTile(
                 title: const Text('Device binding'),
                 subtitle: Text(MenuFormatters.binding(status?.bindingStatus)),
@@ -326,7 +365,12 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
                           }
                           return Padding(
                             padding: const EdgeInsets.only(top: 28, bottom: 40),
-                            child: _PlanBadge(badge: badge, color: onPanel),
+                            child: _PlanBadge(
+                              badge: badge,
+                              color: onPanel,
+                              onViewCoverage:
+                                  _coverageAvailable ? _openCoverage : null,
+                            ),
                           );
                         },
                       ),
@@ -374,58 +418,89 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
 }
 
 class _PlanBadge extends StatelessWidget {
-  const _PlanBadge({required this.badge, required this.color});
+  const _PlanBadge({
+    required this.badge,
+    required this.color,
+    this.onViewCoverage,
+  });
 
   final PlanBadgeView badge;
   final Color color;
+  final VoidCallback? onViewCoverage;
 
   @override
   Widget build(BuildContext context) {
+    final tappable = onViewCoverage != null;
+    final content = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 40,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: _PlanBadgeIcon(badge: badge, color: color),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                badge.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (badge.subtitle != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  badge.subtitle!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: color.withValues(alpha: 0.85),
+                  ),
+                ),
+              ],
+              if (tappable) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
+                      'View coverage',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: color.withValues(alpha: 0.95),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Icon(Icons.chevron_right, color: color, size: 20),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+
     return Semantics(
+      button: tappable,
       label: [
         badge.title,
         if (badge.subtitle != null) badge.subtitle!,
+        if (tappable) 'View coverage',
       ].join(', '),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 40,
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: _PlanBadgeIcon(badge: badge, color: color),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  badge.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (badge.subtitle != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    badge.subtitle!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: color.withValues(alpha: 0.85),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
+      child: tappable
+          ? InkWell(
+              onTap: onViewCoverage,
+              borderRadius: BorderRadius.circular(8),
+              child: content,
+            )
+          : content,
     );
   }
 }
