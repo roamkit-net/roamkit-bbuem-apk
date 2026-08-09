@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 /// Failures from the device status flow.
@@ -25,9 +26,42 @@ class DeviceStatusNotFoundException extends DeviceStatusException {
       : super('Device binding not found or credential invalid.');
 }
 
+/// API returned 404 with ``code=iccid_not_found`` (UEM ICCID miss).
+class DeviceStatusIccidNotFoundException extends DeviceStatusException {
+  const DeviceStatusIccidNotFoundException()
+      : super('No RoamKit data for this ICCID');
+}
+
+/// API returned 503 with ``code=uem_inventory_unavailable``.
+class DeviceStatusUemInventoryUnavailableException extends DeviceStatusException {
+  const DeviceStatusUemInventoryUnavailableException()
+      : super('UEM SIM inventory is temporarily unavailable.');
+}
+
 class DeviceStatusRateLimitedException extends DeviceStatusException {
   const DeviceStatusRateLimitedException()
       : super('Too many status requests. Try again later.');
+}
+
+/// Read a machine ``code`` from a JSON error body without surfacing detail text.
+///
+/// Returns null when the body is missing, invalid, or has no string ``code``.
+String? statusErrorCodeFromBody(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is! Map) {
+      return null;
+    }
+    final code = decoded['code'];
+    if (code is String && code.isNotEmpty) {
+      return code;
+    }
+    return null;
+  } on FormatException {
+    return null;
+  } on Object {
+    return null;
+  }
 }
 
 class DeviceStatusNetworkException extends DeviceStatusException {
