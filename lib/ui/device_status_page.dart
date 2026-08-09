@@ -327,7 +327,8 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
     if (config == null || !config.hasPr18Auth) {
       return;
     }
-    Navigator.of(context).push(
+    // Prefer root navigator so a closing modal sheet cannot swallow the push.
+    Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute<void>(
         builder: (_) => DeviceCoveragePage(
           deviceSerial:
@@ -342,11 +343,14 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
     );
   }
 
-  void _openSupportMenu() {
+  Future<void> _openSupportMenu() async {
     final config = _config;
     final status = _status;
     final showCoverage = _coverageAvailable;
-    showModalBottomSheet<void>(
+    // Pop sheet with a result, then navigate after it fully closes.
+    // Immediate push after pop() is dropped by the navigator while the
+    // modal route is still disposing (tap appears to do nothing).
+    final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) {
@@ -363,8 +367,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _openCoverage();
+                    Navigator.of(sheetContext).pop('coverage');
                   },
                 ),
               ListTile(
@@ -402,6 +405,10 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
         );
       },
     );
+    if (!mounted || action != 'coverage') {
+      return;
+    }
+    _openCoverage();
   }
 
   @override
