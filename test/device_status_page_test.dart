@@ -122,6 +122,8 @@ Future<void> _pumpPage(
   DateTime Function()? now,
   WidgetSnapshotStore? snapshotStore,
   DeviceCoverageClient? coverageClient,
+  Duration foregroundRefreshInterval = const Duration(minutes: 10),
+  Duration resumeDebounce = const Duration(seconds: 60),
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -131,10 +133,23 @@ Future<void> _pumpPage(
         coverageClient: coverageClient ?? _FakeCoverageClient(),
         now: now ?? () => DateTime.utc(2026, 8, 9, 12),
         snapshotStore: snapshotStore ?? NoopWidgetSnapshotStore(),
+        foregroundRefreshInterval: foregroundRefreshInterval,
+        resumeDebounce: resumeDebounce,
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  // Short intervals: do not pumpAndSettle (one-shot would re-fire forever).
+  if (foregroundRefreshInterval < const Duration(seconds: 1)) {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+  } else {
+    await tester.pumpAndSettle();
+  }
+}
+
+bool _hasForegroundTimer(WidgetTester tester) {
+  final state = tester.state(find.byType(DeviceStatusPage));
+  return (state as dynamic).debugHasForegroundTimer as bool;
 }
 
 void main() {
@@ -624,5 +639,278 @@ void main() {
         'Updated ${local.hour.toString().padLeft(2, '0')}:'
         '${local.minute.toString().padLeft(2, '0')}';
     expect(find.text(expected), findsOneWidget);
+  });
+
+  testWidgets('initial load complete arms one-shot; fires only after interval', (
+    tester,
+  ) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      foregroundRefreshInterval: const Duration(milliseconds: 100),
+      resumeDebounce: const Duration(milliseconds: 50),
+    );
+    expect(client.calls, 1);
+    expect(_hasForegroundTimer(tester), isTrue);
+
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(client.calls, 1);
+
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(client.calls, 2);
+    expect(_hasForegroundTimer(tester), isTrue);
+  });
+
+  testWidgets('long-running reload does not catch-up refresh on complete', (
+    tester,
+  ) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final delay = Completer<DeviceStatus>();
+    final client = _FakeStatusClient(status: _sampleStatus())..delay = delay;
+    addTearDown(reader.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeviceStatusPage(
+          reader: reader,
+          statusClient: client,
+          now: () => DateTime.utc(2026, 8, 9, 12),
+          snapshotStore: NoopWidgetSnapshotStore(),
+          foregroundRefreshInterval: const Duration(milliseconds: 80),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(client.calls, 1);
+    expect(_hasForegroundTimer(tester), isFalse);
+
+    // Stay in-flight longer than the interval would have been.
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(client.calls, 1);
+
+    delay.complete(_sampleStatus());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(client.calls, 1);
+    expect(_hasForegroundTimer(tester), isTrue);
+
+    // Next fire only after a full interval from completion.
+    await tester.pump(const Duration(milliseconds: 40));
+    expect(client.calls, 1);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(client.calls, 2);
+  });
+
+  testWidgets('managed-config reload resets one-shot cadence', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      foregroundRefreshInterval: const Duration(milliseconds: 100),
+    );
+    expect(client.calls, 1);
+
+    await tester.pump(const Duration(milliseconds: 60));
+    reader.emit(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(client.calls, 2);
+
+    // Config reload re-armed: must wait full interval again.
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(client.calls, 2);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(client.calls, 3);
+  });
+
+  testWidgets('pause cancels timer; resume debounce skips recent reload', (
+    tester,
+  ) async {
+    var now = DateTime.utc(2026, 8, 9, 12);
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      now: () => now,
+      foregroundRefreshInterval: const Duration(minutes: 10),
+      resumeDebounce: const Duration(seconds: 60),
+    );
+    expect(client.calls, 1);
+    expect(_hasForegroundTimer(tester), isTrue);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    expect(_hasForegroundTimer(tester), isFalse);
+
+    now = now.add(const Duration(seconds: 30));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(client.calls, 1);
+    expect(_hasForegroundTimer(tester), isTrue);
+
+    now = now.add(const Duration(seconds: 45));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(client.calls, 2);
+  });
+
+  testWidgets('clock rollback fail-opens resume reload', (tester) async {
+    var now = DateTime.utc(2026, 8, 9, 12);
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      now: () => now,
+      resumeDebounce: const Duration(hours: 1),
+      foregroundRefreshInterval: const Duration(hours: 1),
+    );
+    expect(client.calls, 1);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    now = now.subtract(const Duration(hours: 2));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(client.calls, 2);
+  });
+
+  testWidgets('dispose while in-flight does not re-arm timer', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final delay = Completer<DeviceStatus>();
+    final client = _FakeStatusClient(status: _sampleStatus())..delay = delay;
+    addTearDown(reader.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeviceStatusPage(
+          reader: reader,
+          statusClient: client,
+          snapshotStore: NoopWidgetSnapshotStore(),
+          foregroundRefreshInterval: const Duration(milliseconds: 50),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(client.calls, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    delay.complete(_sampleStatus());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(client.calls, 1);
+  });
+
+  testWidgets('resume and timer race still single-flight; one timer remains', (
+    tester,
+  ) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final delay = Completer<DeviceStatus>();
+    final client = _FakeStatusClient(status: _sampleStatus())..delay = delay;
+    addTearDown(reader.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeviceStatusPage(
+          reader: reader,
+          statusClient: client,
+          snapshotStore: NoopWidgetSnapshotStore(),
+          foregroundRefreshInterval: const Duration(milliseconds: 40),
+          resumeDebounce: const Duration(hours: 1),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(client.calls, 1);
+
+    delay.complete(_sampleStatus());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(client.calls, 1);
+    expect(_hasForegroundTimer(tester), isTrue);
+
+    // Fire the one-shot and resume in the same turn; single-flight joins.
+    await tester.pump(const Duration(milliseconds: 40));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+    // Resume is debounced (1h); only the timer fire should reload.
+    expect(client.calls, 2);
+    expect(_hasForegroundTimer(tester), isTrue);
+
+    for (var i = 0; i < 3; i++) {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      expect(_hasForegroundTimer(tester), isFalse);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(_hasForegroundTimer(tester), isTrue);
+    }
   });
 }
