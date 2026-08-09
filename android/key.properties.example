@@ -1,0 +1,11 @@
+# Copy to android/key.properties (gitignored) for local signed release builds.
+# Prefer the existing qubitmdm secrets file values:
+#   C:\Users\avrca\Documents\Projects\keys\qubitmdm\qubit-signer.secrets
+#
+# Windows (Flutter on Windows):
+KEYSTORE_PATH=C:\\Users\\avrca\\Documents\\Projects\\keys\\qubitmdm\\qubit-signer.jks
+# WSL (Flutter in Linux):
+# KEYSTORE_PATH=/mnt/c/Users/avrca/Documents/Projects/keys/qubitmdm/qubit-signer.jks
+KEYSTORE_ALIAS=qubit-signer
+KEYSTORE_PASSWORD=
+KEY_PASSWORD=

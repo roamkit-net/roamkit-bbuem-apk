@@ -112,6 +112,21 @@ flutter run --dart-define=ROAMKIT_API_BASE_URL=https://api.staging.roamkit.net
 flutter build apk --debug --dart-define=ROAMKIT_API_BASE_URL=https://api.staging.roamkit.net
 ```
 
+### Signed release APK
+
+Release builds on `main` are signed with the qubitmdm `qubit-signer` keystore via GitHub Actions (`Release APK` workflow). Secrets (not in git):
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_PASSWORD`
+- `ANDROID_KEYSTORE_ALIAS` (`qubit-signer`)
+
+Local signed release (Windows): copy `android/key.properties.example` → `android/key.properties` and fill from `C:\Users\avrca\Documents\Projects\keys\qubitmdm\qubit-signer.secrets`, then:
+
+```bash
+flutter build apk --release --dart-define=ROAMKIT_API_BASE_URL=https://api.roamkit.net
+```
+
 Application id: `net.roamkit.bbuem`
 
 Launcher source art: `assets/branding/ic_launcher_source.png` (exported PNG; PSD is not in the repo).
