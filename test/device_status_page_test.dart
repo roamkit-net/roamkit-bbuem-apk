@@ -71,13 +71,14 @@ class _FakeCoverageClient implements DeviceCoverageClient {
 
   @override
   Future<DeviceCoverage> fetchCoverage({
-    required String deviceExternalId,
-    required String credential,
+    String? deviceSerial,
+    String? deviceExternalId,
+    String? credential,
   }) async {
     calls += 1;
     return coverage ??
         DeviceCoverage(
-          deviceExternalId: deviceExternalId,
+          deviceExternalId: deviceExternalId ?? 'dev-1',
           coverageType: 'regional',
           coverage: const [
             DeviceCoverageCountry(

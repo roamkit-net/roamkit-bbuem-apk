@@ -69,9 +69,9 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
   late final DeviceCoverageClient _coverageClient =
       widget.coverageClient ?? HttpDeviceCoverageClient();
 
-  /// Coverage stays PR18-only until a serial coverage contract exists.
+  /// Coverage uses the same auth completeness as status (serial or PR18).
   bool get _coverageAvailable =>
-      (_config?.hasPr18Auth ?? false) &&
+      (_config?.isComplete ?? false) &&
       _status?.plan?.coverageSummary?.available == true;
 
   DateTime _now() => widget.now?.call() ?? DateTime.now();
@@ -330,8 +330,12 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => DeviceCoveragePage(
-          deviceExternalId: config.deviceExternalId!,
-          credential: config.deviceCredential!,
+          deviceSerial:
+              config.prefersSerialAuth ? config.deviceSerial : null,
+          deviceExternalId:
+              config.prefersSerialAuth ? null : config.deviceExternalId,
+          credential:
+              config.prefersSerialAuth ? null : config.deviceCredential,
           coverageClient: _coverageClient,
         ),
       ),
