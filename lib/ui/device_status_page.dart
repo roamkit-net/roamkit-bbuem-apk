@@ -324,7 +324,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
 
   void _openCoverage() {
     final config = _config;
-    if (config == null || !config.isComplete) {
+    if (config == null || !config.hasPr18Auth) {
       return;
     }
     // Prefer root navigator so a closing modal sheet cannot swallow the push.
