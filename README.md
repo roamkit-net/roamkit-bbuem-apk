@@ -47,13 +47,13 @@ Out of scope:
 
 | Surface | Color | When |
 |---------|-------|------|
-| GREEN | `#15803d` | `esim.status ∈ {activated, in_use}` + usable remaining + not expired |
-| RED | `#b91c1c` | Expired, no usable data, or inactive domain status |
+| GREEN | `#15803d` | usable remaining + not date-expired + `esim.status ∈ {activated, in_use, expired}` |
+| RED | `#b91c1c` | Date-expired, no usable data, exhausted, or inactive domain status |
 | SLATE | `#334155` | Loading, transport/config errors (never green/red) |
 
-GREEN statuses only: `activated`, `in_use`.
+GREEN statuses: `activated`, `in_use`. Domain `expired` is also GREEN when remaining is usable and `expiresAt` is null or in the future (top-up after ADR 014 terminal lifecycle).
 
-Expiry: `expiresAt == null` is not expired (display `—`). `expiresAt <= now` → `EXPIRED`.
+Expiry: `expiresAt == null` is not expired (display `—`). `expiresAt <= now` → `EXPIRED`. Domain `esim.status == expired` alone is not EXPIRED.
 
 Hero labels (success): `ACTIVE` / `EXPIRED` / `NO DATA` / `EXHAUSTED` / `INACTIVE`.  
 Hero labels (error): `UNAVAILABLE` / `NO DATA` (ICCID miss) / `TRY LATER` / `OFFLINE` / `ERROR`.
