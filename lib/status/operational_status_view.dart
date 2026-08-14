@@ -60,8 +60,8 @@ class OperationalStatusView {
         surface: StatusSurface.slateError,
         heroLabel: 'NO DATA',
         isSuccessSnapshot: false,
-        errorDetail: 'No RoamKit data for this device',
-        semanticsSummary: 'No data. No RoamKit data for this device',
+        errorDetail: 'No RoamKit.net data for this device',
+        semanticsSummary: 'No data. No RoamKit.net data for this device',
       ),
       DeviceStatusNotFoundException() => const OperationalStatusView(
         surface: StatusSurface.slateError,
