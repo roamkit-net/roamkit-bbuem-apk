@@ -134,20 +134,21 @@ OperationalStatusView evaluateOperationalView(
   String hero;
   StatusSurface surface;
 
+  // Date-driven EXPIRED only. Domain `esim.status == expired` is terminal
+  // (ADR 014) and can lag a fulfilled top-up whose usage cache already has
+  // remaining data and a future expires_at.
   if (expired) {
     hero = 'EXPIRED';
     surface = StatusSurface.red;
   } else if (!remaining.isUsable) {
     hero = 'NO DATA';
     surface = StatusSurface.red;
-  } else if (OperationalStatusView.aliveStatuses.contains(statusKey)) {
+  } else if (OperationalStatusView.aliveStatuses.contains(statusKey) ||
+      statusKey == 'expired') {
     hero = 'ACTIVE';
     surface = StatusSurface.green;
   } else if (statusKey == 'exhausted') {
     hero = 'EXHAUSTED';
-    surface = StatusSurface.red;
-  } else if (statusKey == 'expired') {
-    hero = 'EXPIRED';
     surface = StatusSurface.red;
   } else {
     hero = 'INACTIVE';

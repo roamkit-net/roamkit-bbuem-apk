@@ -177,6 +177,45 @@ void main() {
       );
       expect(view.heroLabel, 'EXPIRED');
     });
+
+    test('domain expired with remaining and future expiry is ACTIVE', () {
+      final view = evaluateOperationalView(
+        _status(
+          esimStatus: 'expired',
+          dataRemaining: '1024 MB',
+          expiresAt: DateTime.utc(2026, 8, 19, 8, 50, 16),
+        ),
+        now: now,
+      );
+      expect(view.surface, StatusSurface.green);
+      expect(view.heroLabel, 'ACTIVE');
+    });
+
+    test('domain expired with remaining and null expiry is ACTIVE', () {
+      final view = evaluateOperationalView(
+        _status(
+          esimStatus: 'expired',
+          dataRemaining: '1024 MB',
+          expiresAt: null,
+        ),
+        now: now,
+      );
+      expect(view.surface, StatusSurface.green);
+      expect(view.heroLabel, 'ACTIVE');
+    });
+
+    test('domain expired still EXPIRED when expiresAt is past', () {
+      final view = evaluateOperationalView(
+        _status(
+          esimStatus: 'expired',
+          dataRemaining: '1024 MB',
+          expiresAt: DateTime.utc(2026, 8, 1),
+        ),
+        now: now,
+      );
+      expect(view.surface, StatusSurface.red);
+      expect(view.heroLabel, 'EXPIRED');
+    });
   });
 
   group('fromException', () {
