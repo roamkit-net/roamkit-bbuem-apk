@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">RoamKit</string>
+    <string name="app_name">RoamKit.net</string>
     <string name="restriction_device_serial_title">Device serial</string>
     <string name="restriction_device_serial_description">
         UEM device serialNumber for status (roamkit.device_serial). Set to %SerialNumber%. Not a secret.
@@ -13,8 +13,9 @@
     <string name="restriction_device_credential_description">
         PR18 fallback: opaque device credential for status/coverage (roamkit.device_credential). Treat as secret.
     </string>
-    <string name="widget_compact_label">RoamKit Status</string>
-    <string name="widget_compact_description">Compact eSIM status (hero and remaining).</string>
-    <string name="widget_wide_label">RoamKit Status Wide</string>
-    <string name="widget_wide_description">Wide eSIM status (hero, plan, remaining, expiry).</string>
+    <string name="widget_compact_label">RoamKit.net Status</string>
+    <string name="widget_compact_description">eSIM status, usage, and coverage.</string>
+    <string name="widget_wide_label">RoamKit.net Status Wide</string>
+    <string name="widget_wide_description">eSIM status, usage, and coverage.</string>
+    <string name="widget_view_coverage">View coverage</string>
 </resources>

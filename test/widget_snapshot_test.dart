@@ -1,14 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:roamkit_bbuem_apk/api/device_packages.dart';
 import 'package:roamkit_bbuem_apk/api/device_status.dart';
 import 'package:roamkit_bbuem_apk/api/device_status_errors.dart';
 import 'package:roamkit_bbuem_apk/status/operational_status_view.dart';
-import 'package:roamkit_bbuem_apk/status/plan_badge.dart';
+import 'package:roamkit_bbuem_apk/status/usage_bar_view.dart';
 import 'package:roamkit_bbuem_apk/widget/widget_snapshot.dart';
 
 void main() {
-  final now = DateTime.utc(2026, 8, 9, 12);
+  final now = DateTime.utc(2026, 8, 14, 12, 35);
 
-  test('home_widget provider FQCNs use net.roamkit.bbuem', () {
+  test('home_widget provider FQCNs stay on both receivers', () {
     expect(
       WidgetSnapshot.compactProvider,
       'net.roamkit.bbuem.RoamKitCompactWidgetProvider',
@@ -19,15 +20,32 @@ void main() {
     );
   });
 
-  OperationalStatusView greenView() {
+  AppliedPackage activeTopup() {
+    return AppliedPackage(
+      id: 'pkg-1',
+      kind: 'topup',
+      status: 'active',
+      dataAllowance: '1 GB',
+      validityDays: 7,
+      isUnlimited: false,
+      remainingMb: 900,
+      createdAt: now,
+      activatedAt: '2026-08-12T10:50:00+00:00',
+      expiresAt: '2026-08-19T10:50:00+00:00',
+      paidUsd: '4.00',
+      currency: 'USD',
+    );
+  }
+
+  OperationalStatusView activeView() {
     return evaluateOperationalView(
       DeviceStatus(
         deviceExternalId: 'dev-1',
         bindingStatus: 'active',
         esim: const DeviceStatusEsim(id: 1, iccid: '8910', status: 'in_use'),
         usage: DeviceStatusUsage(
-          dataRemaining: 'Unlimited',
-          dataUsed: '0 MB',
+          dataRemaining: '1926 MB',
+          dataUsed: '122 MB',
           expiresAt: DateTime.utc(2026, 9, 1),
         ),
         autoTopup: const DeviceStatusAutoTopup(enabled: false),
@@ -37,70 +55,123 @@ void main() {
     );
   }
 
-  test('atomic JSON includes schema revision and plan fields', () {
-    final plan = buildPlanBadgeView(
-      const DeviceStatusPlan(
-        title: 'Cronet (Croatia)',
-        dataAllowance: 'Unlimited',
-        validityDays: 3,
-        countryCode: 'HR',
-        coverageType: 'local',
-      ),
+  UsageBarView meteredBar() {
+    return buildUsageBarView(
+      dataRemaining: '1926 MB',
+      dataUsed: '122 MB',
     );
-    final snap = WidgetSnapshot.fromViews(
-      view: greenView(),
-      plan: plan,
-      revision: 7,
-      generatedAt: now,
+  }
+
+  test('ACTIVE + valid active_package shows kind · spec title', () {
+    final snap = WidgetSnapshot.fromState(
+      view: activeView(),
+      activePackage: activeTopup(),
+      bar: meteredBar(),
+      coverageAvailable: true,
+      packagesFailed: false,
+      now: now,
     );
-    expect(snap.schema, 1);
-    expect(snap.revision, 7);
-    expect(snap.surface, 'green');
-    expect(snap.hero, 'ACTIVE');
-    expect(snap.remaining, 'Unlimited');
-    expect(snap.expires, isNot(''));
-    expect(snap.planTitle, 'Cronet (Croatia)');
-    expect(snap.planSubtitle, '');
-    expect(snap.planFlag, '🇭🇷');
-    expect(snap.planIcon, 'flag');
+    expect(snap.schemaVersion, 2);
+    expect(snap.displayStatus, 'active');
+    expect(snap.statusLabel, 'ACTIVE');
+    expect(snap.activePackageTitle, 'Top-up · 1 GB · 7 days');
+    expect(snap.hasUsage, isTrue);
+    expect(snap.remainingText, '1.88 GB');
+    expect(snap.totalText, '2 GB');
+    expect(snap.usedText, '122 MB');
+    expect(snap.percent, 94);
+    expect(snap.coverageAvailable, isTrue);
+    expect(snap.updateUnavailable, isFalse);
     expect(snap.containsForbiddenKeys, isFalse);
-
-    final encoded = snap.toJsonString();
-    expect(encoded.contains('widget_snapshot'), isFalse);
-    final roundTrip = WidgetSnapshot.fromJsonString(encoded);
-    expect(roundTrip.hero, 'ACTIVE');
-    expect(roundTrip.revision, 7);
-    expect(roundTrip.schema, 1);
   });
 
-  test('plan null clears plan fields', () {
-    final snap = WidgetSnapshot.fromViews(
-      view: greenView(),
-      plan: null,
-      revision: 1,
-      generatedAt: now,
+  test('double gate: not_active is never a title fallback', () {
+    final queued = AppliedPackage(
+      id: 'q',
+      kind: 'topup',
+      status: 'not_active',
+      dataAllowance: '1 GB',
+      validityDays: 7,
+      isUnlimited: false,
+      remainingMb: 1024,
+      createdAt: now,
+      activatedAt: null,
+      expiresAt: null,
+      paidUsd: '4.00',
+      currency: 'USD',
     );
-    expect(snap.planTitle, '');
-    expect(snap.planSubtitle, '');
-    expect(snap.planIcon, '');
+    final snap = WidgetSnapshot.fromState(
+      view: activeView(),
+      activePackage: queued,
+      bar: meteredBar(),
+      coverageAvailable: false,
+      packagesFailed: false,
+      now: now,
+    );
+    expect(snap.activePackageTitle, isNull);
+    expect(snap.hasUsage, isTrue);
   });
 
-  test('slate error snapshot never green', () {
-    final view = OperationalStatusView.fromException(
-      const MissingManagedConfigException(),
+  test('ACTIVE without package hides title and keeps usage', () {
+    final snap = WidgetSnapshot.fromState(
+      view: activeView(),
+      activePackage: null,
+      bar: meteredBar(),
+      coverageAvailable: false,
+      packagesFailed: false,
+      now: now,
     );
-    final snap = WidgetSnapshot.fromViews(
-      view: view,
-      plan: null,
-      revision: 2,
-      generatedAt: now,
-    );
-    expect(snap.surface, 'slateError');
-    expect(snap.hero, 'UNAVAILABLE');
-    expect(snap.surface, isNot('green'));
+    expect(snap.displayStatus, 'active');
+    expect(snap.activePackageTitle, isNull);
+    expect(snap.hasUsage, isTrue);
+    expect(snap.percent, 94);
   });
 
-  test('red expired snapshot', () {
+  test('packages error hides title but keeps ACTIVE', () {
+    final snap = WidgetSnapshot.fromState(
+      view: activeView(),
+      activePackage: activeTopup(),
+      bar: meteredBar(),
+      coverageAvailable: true,
+      packagesFailed: true,
+      now: now,
+    );
+    expect(snap.displayStatus, 'active');
+    expect(snap.activePackageTitle, isNull);
+    expect(snap.hasUsage, isTrue);
+    expect(snap.updateUnavailable, isFalse);
+  });
+
+  test('ACTIVE missing usage sets has_usage false', () {
+    final snap = WidgetSnapshot.fromState(
+      view: activeView(),
+      activePackage: activeTopup(),
+      bar: const UsageBarView.unavailable(),
+      coverageAvailable: false,
+      packagesFailed: false,
+      now: now,
+    );
+    expect(snap.displayStatus, 'active');
+    expect(snap.hasUsage, isFalse);
+    expect(snap.activePackageTitle, 'Top-up · 1 GB · 7 days');
+  });
+
+  test('unlimited has no percent for native to show', () {
+    final snap = WidgetSnapshot.fromState(
+      view: activeView(),
+      activePackage: activeTopup(),
+      bar: const UsageBarView.unlimited(),
+      coverageAvailable: false,
+      packagesFailed: false,
+      now: now,
+    );
+    expect(snap.unlimited, isTrue);
+    expect(snap.hasUsage, isTrue);
+    expect(snap.remainingText, 'Unlimited');
+    expect(snap.percent, 100);
+  });
+
+  test('EXPIRED has no usage', () {
     final view = evaluateOperationalView(
       DeviceStatus(
         deviceExternalId: 'dev-1',
@@ -116,61 +187,140 @@ void main() {
       ),
       now: now,
     );
-    final snap = WidgetSnapshot.fromViews(
+    final snap = WidgetSnapshot.fromState(
       view: view,
-      plan: null,
-      revision: 3,
-      generatedAt: now,
+      activePackage: activeTopup(),
+      bar: meteredBar(),
+      coverageAvailable: true,
+      packagesFailed: false,
+      now: now,
     );
-    expect(snap.surface, 'red');
-    expect(snap.hero, 'EXPIRED');
+    expect(snap.displayStatus, 'expired');
+    expect(snap.activePackageTitle, isNull);
+    expect(snap.hasUsage, isFalse);
   });
 
-  test('shortExpiresLabel strips year', () {
-    expect(shortExpiresLabel('12 Aug 2026'), '12 Aug');
-    expect(shortExpiresLabel('—'), '—');
-  });
-
-  test('widget_snapshot_v1 contract unchanged (no coverage keys)', () {
-    final plan = buildPlanBadgeView(
-      const DeviceStatusPlan(
-        title: 'Europe',
-        dataAllowance: '5 GB',
-        validityDays: 30,
-        coverageType: 'regional',
-        coverageSummary: DeviceStatusCoverageSummary(
-          available: true,
-          countryCount: 120,
-        ),
+  test('UNAVAILABLE last-good keeps usage and hides title', () {
+    final lastGood = WidgetSnapshot.fromState(
+      view: activeView(),
+      activePackage: activeTopup(),
+      bar: meteredBar(),
+      coverageAvailable: true,
+      packagesFailed: false,
+      now: now,
+    );
+    final snap = WidgetSnapshot.fromState(
+      view: OperationalStatusView.fromException(
+        DeviceStatusNetworkException('down'),
       ),
+      bar: const UsageBarView.unavailable(),
+      coverageAvailable: false,
+      packagesFailed: true,
+      lastGood: lastGood,
+      now: now.add(const Duration(minutes: 1)),
     );
-    final snap = WidgetSnapshot.fromViews(
-      view: greenView(),
-      plan: plan,
-      revision: 1,
-      generatedAt: now,
+    expect(snap.displayStatus, 'unavailable');
+    expect(snap.activePackageTitle, isNull);
+    expect(snap.hasUsage, isTrue);
+    expect(snap.remainingText, '1.88 GB');
+    expect(snap.percent, 94);
+    expect(snap.updateUnavailable, isTrue);
+    expect(snap.lastSuccessAt, lastGood.lastSuccessAt);
+  });
+
+  test('UNAVAILABLE without last-good has no ring', () {
+    final snap = WidgetSnapshot.fromState(
+      view: OperationalStatusView.fromException(
+        const MissingManagedConfigException(),
+      ),
+      bar: const UsageBarView.unavailable(),
+      coverageAvailable: false,
+      packagesFailed: true,
+      now: now,
     );
-    final keys = snap.toJson().keys.toSet();
+    expect(snap.displayStatus, 'unavailable');
+    expect(snap.hasUsage, isFalse);
+    expect(snap.updateUnavailable, isFalse);
+    expect(snap.lastSuccessAt, isNull);
+  });
+
+  test('atomic JSON has only v2 keys and no secrets', () {
+    final snap = WidgetSnapshot.fromState(
+      view: activeView(),
+      activePackage: activeTopup(),
+      bar: meteredBar(),
+      coverageAvailable: true,
+      packagesFailed: false,
+      now: now,
+    );
     expect(
-      keys,
+      snap.toJson().keys.toSet(),
       {
-        'schema',
-        'revision',
-        'surface',
-        'hero',
-        'remaining',
-        'expires',
-        'plan_title',
-        'plan_subtitle',
-        'plan_flag',
-        'plan_icon',
-        'detail',
+        'schema_version',
         'generated_at',
+        'last_success_at',
+        'display_status',
+        'status_label',
+        'active_package_title',
+        'has_usage',
+        'remaining_text',
+        'total_text',
+        'used_text',
+        'percent',
+        'unlimited',
+        'coverage_available',
+        'update_unavailable',
       },
     );
-    expect(keys.contains('coverage'), isFalse);
-    expect(keys.contains('coverage_summary'), isFalse);
-    expect(keys.contains('operators'), isFalse);
-    expect(snap.toJsonString().contains('coverage'), isFalse);
+    expect(snap.toJsonString().toLowerCase().contains('iccid'), isFalse);
+    expect(snap.toJsonString().toLowerCase().contains('credential'), isFalse);
+    final roundTrip = WidgetSnapshot.fromJsonString(snap.toJsonString());
+    expect(roundTrip.percent, 94);
+    expect(roundTrip.activePackageTitle, 'Top-up · 1 GB · 7 days');
+  });
+
+  test('unknown schema and status fail fromJson', () {
+    expect(
+      () => WidgetSnapshot.fromJsonString('{"schema_version":1}'),
+      throwsFormatException,
+    );
+    expect(
+      () => WidgetSnapshot.fromJsonString(
+        '{"schema_version":2,"display_status":"green"}',
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test('older generated_at must not overwrite newer', () {
+    final newer = WidgetSnapshot.fromState(
+      view: activeView(),
+      bar: meteredBar(),
+      coverageAvailable: false,
+      packagesFailed: false,
+      now: now,
+    );
+    final older = newer.copyWith(
+      generatedAt: now.subtract(const Duration(minutes: 5)).toIso8601String(),
+    );
+    expect(snapshotIsStaleWrite(newer, older), isTrue);
+    expect(snapshotIsStaleWrite(older, newer), isFalse);
+  });
+
+  test('stale mark keeps usage', () {
+    final active = WidgetSnapshot.fromState(
+      view: activeView(),
+      activePackage: activeTopup(),
+      bar: meteredBar(),
+      coverageAvailable: true,
+      packagesFailed: false,
+      now: now,
+    );
+    final stale = active.markStale(now: now.add(const Duration(hours: 1)));
+    expect(stale.displayStatus, 'unavailable');
+    expect(stale.updateUnavailable, isTrue);
+    expect(stale.activePackageTitle, isNull);
+    expect(stale.hasUsage, isTrue);
+    expect(stale.percent, 94);
   });
 }

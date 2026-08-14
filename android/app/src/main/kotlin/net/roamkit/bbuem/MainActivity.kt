@@ -21,9 +21,23 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val managedMethodChannelName = "net.roamkit.bbuem/managed_config"
     private val managedEventChannelName = "net.roamkit.bbuem/managed_config_events"
+    private val routeChannelName = "net.roamkit.bbuem/widget_route"
+    private val workChannelName = "net.roamkit.bbuem/widget_work"
 
     private var restrictionsReceiver: BroadcastReceiver? = null
     private var eventSink: EventChannel.EventSink? = null
+    private var pendingRoute: String? = null
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        pendingRoute = routeFrom(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingRoute = routeFrom(intent)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -32,6 +46,37 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getManagedConfig" -> result.success(readManagedConfig())
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, routeChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "takePendingRoute" -> {
+                        val route = pendingRoute
+                        pendingRoute = null
+                        result.success(route)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, workChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "onSnapshotSuccess" -> {
+                        val last = call.argument<String>("last_success_at")
+                        if (!last.isNullOrBlank()) {
+                            WidgetWorkScheduler.scheduleStale(this, last)
+                        }
+                        WidgetWorkScheduler.ensureScheduled(this)
+                        result.success(null)
+                    }
+                    "ensureScheduled" -> {
+                        WidgetWorkScheduler.ensureScheduled(this)
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -56,6 +101,14 @@ class MainActivity : FlutterActivity() {
         unregisterRestrictionsReceiver()
         eventSink = null
         super.onDestroy()
+    }
+
+    private fun routeFrom(intent: Intent?): String? {
+        val raw = intent?.getStringExtra(RoamKitWidgetBinder.EXTRA_ROUTE) ?: return null
+        return when (raw) {
+            "home", "packages", "refresh", "coverage" -> raw
+            else -> "home"
+        }
     }
 
     private fun readManagedConfig(): Map<String, String?> {

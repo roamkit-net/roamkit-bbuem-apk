@@ -324,7 +324,7 @@ void main() {
     await _pumpPage(tester, reader: reader, client: client);
     expect(find.text('○ INACTIVE'), findsOneWidget);
     expect(find.text('No active data package'), findsOneWidget);
-    expect(find.text('No RoamKit data for this device'), findsNothing);
+    expect(find.text('No RoamKit.net data for this device'), findsNothing);
   });
 
   testWidgets('slate ICCID NO DATA is distinct from success NO DATA', (
@@ -523,9 +523,9 @@ void main() {
     delay.complete(_sampleStatus());
     await tester.pumpAndSettle();
     expect(store.published, isNotEmpty);
-    expect(store.published.last.surface, 'green');
-    expect(store.published.last.hero, 'ACTIVE');
-    expect(store.published.last.planTitle, 'Cronet (Croatia)');
+    expect(store.published.last.displayStatus, 'active');
+    expect(store.published.last.statusLabel, 'ACTIVE');
+    expect(store.published.last.activePackageTitle, isNull);
   });
 
   testWidgets('publishes slate snapshot on error', (tester) async {
@@ -548,8 +548,8 @@ void main() {
       snapshotStore: store,
     );
     expect(store.published, isNotEmpty);
-    expect(store.published.last.surface, 'slateError');
-    expect(store.published.last.hero, 'OFFLINE');
+    expect(store.published.last.displayStatus, 'unavailable');
+    expect(store.published.last.statusLabel, 'UNAVAILABLE');
   });
 
   testWidgets('in-flight refresh does not publish over prior snapshot', (
@@ -572,21 +572,21 @@ void main() {
       snapshotStore: store,
     );
     expect(store.published.length, 1);
-    expect(store.published.single.hero, 'ACTIVE');
+    expect(store.published.single.displayStatus, 'active');
 
     final delay = Completer<DeviceStatus>();
     client.delay = delay;
     await tester.tap(find.byTooltip('Reload status'));
     await tester.pump();
     expect(store.published.length, 1);
-    expect(store.published.single.surface, isNot('slateLoading'));
+    expect(store.published.single.displayStatus, isNot('unavailable'));
 
     delay.complete(
       _sampleStatus(dataRemaining: '1 GB'),
     );
     await tester.pumpAndSettle();
     expect(store.published.length, 2);
-    expect(store.published.last.remaining, '1 GB');
+    expect(store.published.last.remainingText, '1 GB');
   });
 
   testWidgets('regional coverage shows affordance and opens Coverage screen', (

@@ -15,10 +15,11 @@ import '../status/applied_packages.dart';
 import '../status/home_status_chrome.dart';
 import '../status/menu_formatters.dart';
 import '../status/operational_status_view.dart';
-import '../status/plan_badge.dart';
 import '../status/usage_bar_view.dart';
+import '../widget/widget_route.dart';
 import '../widget/widget_snapshot.dart';
 import '../widget/widget_snapshot_store.dart';
+import '../widget/widget_work.dart';
 import 'device_coverage_page.dart';
 import 'home_error_banner.dart';
 import 'home_expiry_card.dart';
@@ -76,7 +77,6 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
   bool _loading = true;
   Future<void>? _inFlight;
   int _reloadGeneration = 0;
-  int _widgetRevision = 0;
   StreamSubscription<ManagedConfig>? _subscription;
   Timer? _foregroundTimer;
   DateTime? _lastReloadCompletedAt;
@@ -93,6 +93,9 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
   bool _statusRefreshError = false;
   bool _iccidCopied = false;
   Timer? _copiedTimer;
+  WidgetSnapshot? _lastWidgetSnapshot;
+  final GlobalKey _packagesKey = GlobalKey();
+  final ScrollController _scrollController = ScrollController();
 
   /// Coverage uses the same auth completeness as status (serial or PR18).
   bool get _coverageAvailable =>
@@ -120,11 +123,13 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
     });
     // Do not arm timer here — only after a completed reload while resumed.
     unawaited(_reload(includePackages: true));
+    unawaited(_consumeWidgetRoute());
   }
 
   @override
   void dispose() {
     _copiedTimer?.cancel();
+    _scrollController.dispose();
     _cancelForegroundTimer();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_subscription?.cancel());
@@ -135,6 +140,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
+        unawaited(_consumeWidgetRoute());
         _maybeReloadOnResume();
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
@@ -296,8 +302,8 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
           _loading = false;
           _statusRefreshError = false;
         });
-        unawaited(_publishWidgetSnapshot());
         await packagesFuture;
+        unawaited(_publishWidgetSnapshot());
         return;
       }
 
@@ -308,6 +314,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
           _statusRefreshError = true;
         });
         await packagesFuture;
+        unawaited(_publishWidgetSnapshot(statusFailed: true));
         return;
       }
 
@@ -342,6 +349,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
           _loading = false;
           _statusRefreshError = true;
         });
+        unawaited(_publishWidgetSnapshot(statusFailed: true));
         return;
       }
       setState(() {
@@ -415,6 +423,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
       return;
     }
     await _loadPackages(config, _reloadGeneration);
+    unawaited(_publishWidgetSnapshot());
   }
 
   void _onIccidCopied() {
@@ -433,26 +442,74 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
   }
 
   /// Publish final success/error only — never in-flight [StatusSurface.slateLoading].
-  Future<void> _publishWidgetSnapshot() async {
+  Future<void> _publishWidgetSnapshot({bool statusFailed = false}) async {
     if (_view.surface == StatusSurface.slateLoading) {
       return;
     }
-    final plan =
-        _view.isSuccessSnapshot ? buildPlanBadgeView(_status?.plan) : null;
-    final snapshot = WidgetSnapshot.fromViews(
-      view: _view,
-      plan: plan,
-      revision: ++_widgetRevision,
-      generatedAt: _now().toUtc(),
+    final view = statusFailed
+        ? OperationalStatusView.fromException(
+            const DeviceStatusUnexpectedException('Could not load status'),
+          )
+        : _view;
+    final bar = buildUsageBarView(
+      dataRemaining: _status?.usage.dataRemaining,
+      dataUsed: _status?.usage.dataUsed,
+    );
+    final snapshot = WidgetSnapshot.fromState(
+      view: view,
+      activePackage: _packagesSnapshot?.activePackage,
+      bar: bar,
+      coverageAvailable: _coverageAvailable,
+      packagesFailed: _packagesError != null,
+      lastGood: _lastWidgetSnapshot,
+      now: _now(),
     );
     try {
       await _snapshotStore.publish(snapshot);
+      _lastWidgetSnapshot = snapshot;
+      if (snapshot.lastSuccessAt != null && !snapshot.updateUnavailable) {
+        await WidgetWorkBridge.onSnapshotSuccess(
+          lastSuccessAt: snapshot.lastSuccessAt!,
+        );
+      }
     } catch (error) {
       assert(() {
         debugPrint('widget snapshot publish failed: $error');
         return true;
       }());
     }
+  }
+
+  Future<void> _consumeWidgetRoute() async {
+    final route = await WidgetRouteBridge.takePending();
+    if (!mounted || route == null || route == WidgetRoute.home) {
+      return;
+    }
+    switch (route) {
+      case WidgetRoute.coverage:
+        _openCoverage();
+      case WidgetRoute.packages:
+        unawaited(_reload(includePackages: true));
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _focusPackages();
+        });
+      case WidgetRoute.refresh:
+        unawaited(_reload(includePackages: true));
+      case WidgetRoute.home:
+        break;
+    }
+  }
+
+  void _focusPackages() {
+    final ctx = _packagesKey.currentContext;
+    if (ctx == null) {
+      return;
+    }
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 280),
+      alignment: 0.1,
+    );
   }
 
   List<Widget> _heroWarningBanners() {
@@ -574,7 +631,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
               ),
               ListTile(
                 title: const Text('About'),
-                subtitle: Text('RoamKit · ${AppConfig.apiBaseUrl}'),
+                subtitle: Text('RoamKit.net · ${AppConfig.apiBaseUrl}'),
               ),
             ],
           ),
@@ -626,7 +683,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
         backgroundColor: HomeTokens.background,
         foregroundColor: HomeTokens.primaryText,
         elevation: 0,
-        title: const Text('RoamKit'),
+        title: const Text('RoamKit.net'),
         actions: [
           IconButton(
             tooltip: 'Support menu',
@@ -648,6 +705,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
               maxWidth: HomeTokens.maxContentWidth,
             ),
             child: ListView(
+              controller: _scrollController,
               padding: const EdgeInsets.fromLTRB(
                 HomeTokens.pageInset,
                 12,
@@ -699,6 +757,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
                     const HomeSkeleton(showHero: false, showPackages: true)
                   else
                     HomePackagesCards(
+                      key: _packagesKey,
                       groups: groups,
                       packagesError: _packagesError,
                       onRetry: _retryPackages,

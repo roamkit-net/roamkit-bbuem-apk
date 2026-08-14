@@ -5,11 +5,18 @@ import 'api/device_packages_client.dart';
 import 'api/device_status_client.dart';
 import 'managed_config/managed_config_reader.dart';
 import 'ui/device_status_page.dart';
+import 'widget/widget_background_refresh.dart';
 import 'widget/widget_snapshot_store.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const RoamKitDeviceApp());
+}
+
+/// WorkManager headless entrypoint. Must stay a top-level function in main.dart.
+@pragma('vm:entry-point')
+void widgetBackgroundRefresh() {
+  widgetBackgroundRefreshImpl();
 }
 
 class RoamKitDeviceApp extends StatelessWidget {
@@ -31,7 +38,7 @@ class RoamKitDeviceApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'RoamKit',
+      title: 'RoamKit.net',
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF090B0F),

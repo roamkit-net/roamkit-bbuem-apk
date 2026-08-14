@@ -27,5 +27,5 @@
         android:textColor="#FFFFFFFF"
         android:maxLines="2"
         android:ellipsize="end"
-        android:text="Open RoamKit" />
+        android:text="Open RoamKit.net" />
 </LinearLayout>
