@@ -631,7 +631,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
               ),
               ListTile(
                 title: const Text('About'),
-                subtitle: Text('RoamKit · ${AppConfig.apiBaseUrl}'),
+                subtitle: Text('RoamKit.net · ${AppConfig.apiBaseUrl}'),
               ),
             ],
           ),
@@ -683,7 +683,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
         backgroundColor: HomeTokens.background,
         foregroundColor: HomeTokens.primaryText,
         elevation: 0,
-        title: const Text('RoamKit'),
+        title: const Text('RoamKit.net'),
         actions: [
           IconButton(
             tooltip: 'Support menu',

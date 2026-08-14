@@ -111,7 +111,7 @@ void main() {
         isA<DeviceStatusIccidNotFoundException>().having(
           (e) => e.message,
           'message',
-          'No RoamKit data for this ICCID',
+          'No RoamKit.net data for this ICCID',
         ),
       ),
     );
