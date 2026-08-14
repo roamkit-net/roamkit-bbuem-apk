@@ -79,7 +79,7 @@
             android:textColor="#FFFFFFFF"
             android:maxLines="1"
             android:ellipsize="end"
-            android:text="Open RoamKit" />
+            android:text="Open RoamKit.net" />
 
         <TextView
             android:id="@+id/widget_expires"

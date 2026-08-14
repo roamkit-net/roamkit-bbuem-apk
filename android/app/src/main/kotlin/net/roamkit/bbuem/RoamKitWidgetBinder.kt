@@ -156,7 +156,7 @@ object RoamKitWidgetBinder {
             return "Usage not synced"
         }
         if (snapshot.displayStatus == "unavailable" && !snapshot.hasUsage) {
-            return "Open RoamKit to retry"
+            return "Open RoamKit.net to retry"
         }
         return ""
     }

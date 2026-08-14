@@ -30,7 +30,7 @@ class DeviceStatusNotFoundException extends DeviceStatusException {
 /// API returned 404 with ``code=iccid_not_found`` (UEM ICCID miss).
 class DeviceStatusIccidNotFoundException extends DeviceStatusException {
   const DeviceStatusIccidNotFoundException()
-      : super('No RoamKit data for this ICCID');
+      : super('No RoamKit.net data for this ICCID');
 }
 
 /// API returned 503 with ``code=uem_inventory_unavailable``.

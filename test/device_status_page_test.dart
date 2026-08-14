@@ -324,7 +324,7 @@ void main() {
     await _pumpPage(tester, reader: reader, client: client);
     expect(find.text('○ INACTIVE'), findsOneWidget);
     expect(find.text('No active data package'), findsOneWidget);
-    expect(find.text('No RoamKit data for this device'), findsNothing);
+    expect(find.text('No RoamKit.net data for this device'), findsNothing);
   });
 
   testWidgets('slate ICCID NO DATA is distinct from success NO DATA', (
