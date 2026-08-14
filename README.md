@@ -18,18 +18,27 @@ POST /api/v1/device/status/
   or PR18 device_external_id + credential
   ↓
 operational eSIM status (green / red / slate)
+  +
+POST /api/v1/device/packages/  ← on open + manual Refresh only
+  same body (never client ICCID)
+  ↓
+Available / Previous / Unknown package lists
 ```
 
 ## Scope
 
 - Read Android managed configuration (no credential storage)
-- Show operational status panel: hero + plan badge + data remaining + expiry + updated time
-- Plan badge from API `plan` snapshot (flag / region / globe); hidden when `plan` is null
+- Home hero: operational color + plan title + full ICCID (copy) + usage bar
+  (remaining + used from status) + expiry countdown + updated time
+- Package lists below the hero from `POST /api/v1/device/packages/`
+- Plan badge from API `plan` title + coverage icon; no stale allowance/validity subtitle
 - Support menu (read-only): binding, external id, credential present/missing, auto-topup, API env
-- Reload on managed-config change; single-flight refresh; failed refresh → slate error
+- Reload on managed-config change; single-flight refresh
+- Partial failure keeps last-good data (packages Retry does not wipe the hero)
 - Foreground auto-refresh: one-shot 10 min timer after each completed load while
-  resumed; resume reloads if ≥60s since last complete (no WorkManager)
-- Never log or surface the credential; never show ICCID on user surfaces
+  resumed (status only — does not poll package history); resume reloads status
+  if ≥60s since last complete (no WorkManager)
+- Never log or surface the credential; ICCID is on the home hero only
 - Plan badge is informational only — does not drive GREEN/RED
 - Android home-screen widgets (2×2 + 4×2) paint from the same Dart snapshot
 - Coverage screen (regional/global): countries + operators from
@@ -41,7 +50,7 @@ Out of scope:
 - BlackBerry/UEM sync / provisioning automation
 - Secure storage of credentials
 - Headless / WorkManager widget refresh while the app is dead
-- Amber / low-data warning state
+- Package lists / ICCID / usage-bar colors on home-screen widgets
 
 ## Status colors (locked)
 
@@ -81,7 +90,8 @@ Rules:
 
 - Open the app at least once after install / UEM config so a snapshot exists.
 - In-flight reload does **not** overwrite the last good widget with a loading slate (same SWR idea as in-app).
-- Failed refresh publishes slate error (never leaves a false green).
+- Failed first load publishes slate error. A failed refresh keeps last-good
+  in-app state and does not overwrite the widget with empty/slate.
 - Missing / corrupt / unknown schema → slate `UNAVAILABLE` / “Open RoamKit”.
 - Tap opens `MainActivity` with no credential, ICCID, or external-id extras.
 - No background fetch while the app is dead (last persisted snapshot survives reboot).
@@ -94,8 +104,8 @@ Rules:
 | `roamkit.device_external_id` | PR18 fallback `DeviceBinding` lookup id (not a secret) |
 | `roamkit.device_credential` | PR18 fallback opaque secret for status/coverage |
 
-When `roamkit.device_serial` is present, status and coverage use the serial
-path even if PR18 keys are also set.
+When `roamkit.device_serial` is present, status, coverage, and packages use
+the serial path even if PR18 keys are also set.
 
 Do **not** put `organization_id`, `account_id`, ICCID, `fleet_*`, or user JWTs in managed config.
 
