@@ -29,6 +29,20 @@ void main() {
             'currency': 'USD',
           },
         ],
+        'active_package': {
+          'id': '1',
+          'kind': 'esim',
+          'status': 'active',
+          'data_allowance': '1 GB',
+          'validity_days': 7,
+          'is_unlimited': false,
+          'remaining_mb': 900,
+          'created_at': '2026-08-01T00:00:00Z',
+          'activated_at': '2026-08-12T10:50:00+00:00',
+          'expires_at': '2026-08-19T10:50:00+00:00',
+          'paid_usd': '11.50',
+          'currency': 'USD',
+        },
         'checked_at': '2026-08-09T00:00:00Z',
       };
 
@@ -65,6 +79,8 @@ void main() {
     expect(snapshot.results, hasLength(1));
     expect(snapshot.results.single.paidUsd, '11.50');
     expect(snapshot.results.single.status, 'active');
+    expect(snapshot.activePackage?.id, '1');
+    expect(snapshot.activePackage?.status, 'active');
   });
 
   test('posts serial-only body when deviceSerial is set', () async {
