@@ -37,20 +37,20 @@ Available / Previous / Unknown package lists
 - Partial failure keeps last-good data (packages Retry does not wipe the hero)
 - Foreground auto-refresh: one-shot 10 min timer after each completed load while
   resumed (status only — does not poll package history); resume reloads status
-  if ≥60s since last complete (no WorkManager)
+  if ≥60s since last complete
 - Never log or surface the credential; ICCID is on the home hero only
 - Plan badge is informational only — does not drive GREEN/RED
-- Android home-screen widgets (2×2 + 4×2) paint from the same Dart snapshot
+- Android home-screen widgets paint snapshot v2 (dark 4×3); both existing
+  receivers stay so upgrades do not drop instances
 - Coverage screen (regional/global): countries + operators from
-  `POST /api/v1/device/coverage/` (not on the home-screen widget)
+  `POST /api/v1/device/coverage/`
 
 Out of scope:
 
 - Org UI, billing mutations, binding management
 - BlackBerry/UEM sync / provisioning automation
 - Secure storage of credentials
-- Headless / WorkManager widget refresh while the app is dead
-- Package lists / ICCID / usage-bar colors on home-screen widgets
+- Package lists / ICCID on home-screen widgets
 
 ## Status colors (locked)
 
@@ -73,28 +73,20 @@ Color logic lives in pure Dart [`lib/status/operational_status_view.dart`](lib/s
 
 ## Home-screen widgets
 
-Two separate picker entries (no 4×4):
-
-| Entry | Size | Shows |
-|-------|------|--------|
-| RoamKit Status | 2×2 | Hero + remaining |
-| RoamKit Status Wide | 4×2 | Hero + plan (if present) + remaining + expiry |
-
-Architecture:
-
-1. After each completed status load (success or error), Flutter builds a `WidgetSnapshot` from `OperationalStatusView` + optional `PlanBadgeView`.
-2. One JSON string is written under `widget_snapshot_v1`, then both providers are refreshed.
-3. Native `RoamKitCompactWidgetProvider` / `RoamKitWideWidgetProvider` share `RoamKitWidgetBinder` — deserialize and paint only.
+Both existing receivers (`RoamKitCompactWidgetProvider`,
+`RoamKitWideWidgetProvider`) stay registered and paint the same dark 4×3
+layout from snapshot v2 (`widget_snapshot`). Flutter decides meaning; native
+only paints. WorkManager runs a best-effort 15-minute refresh when connected
+and a no-network stale flip at `last_success_at + 60 min`.
 
 Rules:
 
-- Open the app at least once after install / UEM config so a snapshot exists.
-- In-flight reload does **not** overwrite the last good widget with a loading slate (same SWR idea as in-app).
-- Failed first load publishes slate error. A failed refresh keeps last-good
-  in-app state and does not overwrite the widget with empty/slate.
-- Missing / corrupt / unknown schema → slate `UNAVAILABLE` / “Open RoamKit”.
-- Tap opens `MainActivity` with no credential, ICCID, or external-id extras.
-- No background fetch while the app is dead (last persisted snapshot survives reboot).
+- In-flight reload does **not** publish a loading snapshot.
+- Status error keeps last-good usage and paints `↻ UNAVAILABLE`.
+- Packages error hides the package title and does not turn ACTIVE into UNAVAILABLE.
+- Missing / corrupt / unknown schema → empty `UNAVAILABLE`.
+- Taps use an explicit Activity extra (`home` / `packages` / `refresh` /
+  `coverage`). No public `roamkit://` intent filter, ICCID, or credential extras.
 
 ## Managed configuration keys
 
