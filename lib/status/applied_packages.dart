@@ -1,59 +1,126 @@
 import '../api/device_packages.dart';
+import '../api/device_status.dart';
 
-/// Display grouping for applied package history (same as web).
+/// Display grouping for applied package history.
+///
+/// Current = active + not_active + queued. Previous = expired + finished.
+/// Unknown statuses are omitted (fail-closed) — never painted as queued.
 class AppliedPackageGroup {
   const AppliedPackageGroup({
-    required this.available,
+    required this.active,
+    required this.notActive,
+    required this.queued,
     required this.previous,
-    required this.unknown,
+    required this.omittedUnknown,
   });
 
-  final List<AppliedPackage> available;
+  final List<AppliedPackage> active;
+  final List<AppliedPackage> notActive;
+  final List<AppliedPackage> queued;
   final List<AppliedPackage> previous;
-  final List<AppliedPackage> unknown;
+  final List<AppliedPackage> omittedUnknown;
 
-  int get availableCount => available.length;
+  int get activeCount => active.length;
 
-  int get activeCount =>
-      available.where((pkg) => pkg.status == 'active').length;
+  /// Header queued count includes not_active (upcoming).
+  int get queuedHeaderCount => notActive.length + queued.length;
 
-  int get notActiveCount =>
-      available.where((pkg) => pkg.status == 'not_active').length;
+  bool get hasCurrent =>
+      active.isNotEmpty || notActive.isNotEmpty || queued.isNotEmpty;
 
-  bool get hasNotActive => notActiveCount > 0;
+  String? get headerSummary {
+    final parts = <String>[];
+    if (activeCount > 0) {
+      parts.add('$activeCount active');
+    }
+    if (queuedHeaderCount > 0) {
+      parts.add('$queuedHeaderCount queued');
+    }
+    if (parts.isEmpty) {
+      return null;
+    }
+    return parts.join(' · ');
+  }
 }
 
-/// Available = active + not_active; Previous = expired + finished;
-/// everything else is Unknown (never labeled Expired).
-AppliedPackageGroup partitionAppliedPackages(List<AppliedPackage> packages) {
-  final available = <AppliedPackage>[];
+AppliedPackageGroup partitionAppliedPackages(
+  List<AppliedPackage> packages, {
+  AppliedPackage? activePackage,
+}) {
+  final active = <AppliedPackage>[];
+  final notActive = <AppliedPackage>[];
+  final queued = <AppliedPackage>[];
   final previous = <AppliedPackage>[];
-  final unknown = <AppliedPackage>[];
+  final omittedUnknown = <AppliedPackage>[];
 
   for (final pkg in packages) {
     switch (pkg.status) {
       case 'active':
+        active.add(pkg);
       case 'not_active':
-        available.add(pkg);
+        notActive.add(pkg);
+      case 'queued':
+        queued.add(pkg);
       case 'expired':
       case 'finished':
         previous.add(pkg);
       default:
-        unknown.add(pkg);
+        omittedUnknown.add(pkg);
     }
   }
 
+  previous.sort(_newestPreviousFirst);
+
   return AppliedPackageGroup(
-    available: available,
+    active: _leadWithActivePackage(active, activePackage),
+    notActive: notActive,
+    queued: queued,
     previous: previous,
-    unknown: unknown,
+    omittedUnknown: omittedUnknown,
   );
+}
+
+List<AppliedPackage> _leadWithActivePackage(
+  List<AppliedPackage> active,
+  AppliedPackage? selected,
+) {
+  if (selected == null || selected.status != 'active') {
+    return active;
+  }
+  final match = active.where((pkg) => pkg.id == selected.id).toList();
+  final rest = active.where((pkg) => pkg.id != selected.id).toList();
+  if (match.isEmpty) {
+    return active;
+  }
+  return [...match, ...rest];
+}
+
+int _newestPreviousFirst(AppliedPackage a, AppliedPackage b) {
+  final ak = _previousSortKey(a);
+  final bk = _previousSortKey(b);
+  if (ak == null && bk == null) {
+    return 0;
+  }
+  if (ak == null) {
+    return 1;
+  }
+  if (bk == null) {
+    return -1;
+  }
+  return bk.compareTo(ak);
+}
+
+DateTime? _previousSortKey(AppliedPackage pkg) {
+  return parseApiDateTime(pkg.expiresAt) ??
+      parseApiDateTime(pkg.activatedAt) ??
+      pkg.createdAt;
 }
 
 String appliedPackageStatusLabel(String status) {
   return switch (status) {
     'active' => 'Active',
-    'not_active' => 'Not active',
+    'not_active' => 'Starts on first use',
+    'queued' => 'Queued',
     'expired' || 'finished' => 'Expired',
     _ => 'Unknown',
   };
@@ -72,22 +139,19 @@ String packageSpecLabel(AppliedPackage pkg) {
   return '${data.isEmpty ? '—' : data} · $days';
 }
 
-String formatPaidAmount(String? paidUsd, String? currency) {
+String? formatPaidAmountOrNull(String? paidUsd, String? currency) {
   if (paidUsd == null || paidUsd.isEmpty) {
-    return '—';
+    return null;
   }
   final amount = double.tryParse(paidUsd);
   if (amount == null || !amount.isFinite) {
-    return '—';
+    return null;
   }
   final code = (currency ?? '').trim();
   final suffix = code.isEmpty ? 'USD' : code;
   return '\$${amount.toStringAsFixed(2)} $suffix';
 }
 
-String availablePackagesCaption(int count) {
-  if (count == 1) {
-    return '1 package available';
-  }
-  return '$count packages available';
+String formatPaidAmount(String? paidUsd, String? currency) {
+  return formatPaidAmountOrNull(paidUsd, currency) ?? '—';
 }

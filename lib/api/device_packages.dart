@@ -7,12 +7,14 @@ class DevicePackages {
     required this.iccid,
     required this.results,
     required this.checkedAt,
+    this.activePackage,
   });
 
   /// Null on serial-auth success (server does not mint a binding).
   final String? deviceExternalId;
   final String iccid;
   final List<AppliedPackage> results;
+  final AppliedPackage? activePackage;
   final DateTime? checkedAt;
 
   factory DevicePackages.fromJson(Map<String, dynamic> json) {
@@ -25,10 +27,16 @@ class DevicePackages {
         }
       }
     }
+    final rawActive = json['active_package'];
+    AppliedPackage? active;
+    if (rawActive is Map) {
+      active = AppliedPackage.fromJson(Map<String, dynamic>.from(rawActive));
+    }
     return DevicePackages(
       deviceExternalId: _asNullableString(json['device_external_id']),
       iccid: json['iccid'] as String? ?? '',
       results: results,
+      activePackage: active,
       checkedAt: parseApiDateTime(json['checked_at']),
     );
   }

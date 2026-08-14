@@ -36,6 +36,24 @@ void main() {
     expect(view.warn, isTrue);
   });
 
+  test('24h + 1s → 1 day remaining', () {
+    final view = buildExpiryCountdown(
+      expiresAt: now.add(const Duration(hours: 24, seconds: 1)),
+      now: now,
+      notYetInUse: false,
+    );
+    expect(view.remainingLine, '1 day remaining');
+  });
+
+  test('47h 59m → 1 day remaining', () {
+    final view = buildExpiryCountdown(
+      expiresAt: now.add(const Duration(hours: 47, minutes: 59)),
+      now: now,
+      notYetInUse: false,
+    );
+    expect(view.remainingLine, '1 day remaining');
+  });
+
   test('exactly 24h is Expires today', () {
     final view = buildExpiryCountdown(
       expiresAt: now.add(const Duration(hours: 24)),
