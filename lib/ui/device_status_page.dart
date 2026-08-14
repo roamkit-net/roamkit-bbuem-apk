@@ -3,29 +3,38 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../api/device_coverage_client.dart';
+import '../api/device_packages.dart';
+import '../api/device_packages_client.dart';
 import '../api/device_status.dart';
 import '../api/device_status_client.dart';
 import '../api/device_status_errors.dart';
 import '../config/app_config.dart';
 import '../managed_config/managed_config.dart';
 import '../managed_config/managed_config_reader.dart';
+import '../status/expiry_countdown.dart';
 import '../status/menu_formatters.dart';
 import '../status/operational_status_view.dart';
 import '../status/plan_badge.dart';
+import '../status/usage_bar_view.dart';
 import '../widget/widget_snapshot.dart';
 import '../widget/widget_snapshot_store.dart';
 import 'device_coverage_page.dart';
+import 'device_packages_section.dart';
+import 'iccid_copy_row.dart';
+import 'usage_bar_widget.dart';
 
 /// Reads UEM managed config and shows operational eSIM status.
 ///
-/// Credential is used only in-memory for the status POST and is never shown,
-/// stored, or included in error text. ICCID is never shown on user surfaces.
+/// Credential is used only in-memory for POSTs and is never shown, stored,
+/// or included in error text. ICCID is shown on the home hero (copy allowed)
+/// and is never sent in a request body, logged, or published to widgets.
 class DeviceStatusPage extends StatefulWidget {
   const DeviceStatusPage({
     super.key,
     required this.reader,
     required this.statusClient,
     this.coverageClient,
+    this.packagesClient,
     this.now,
     this.snapshotStore,
     this.foregroundRefreshInterval = const Duration(minutes: 10),
@@ -35,6 +44,7 @@ class DeviceStatusPage extends StatefulWidget {
   final ManagedConfigReader reader;
   final DeviceStatusClient statusClient;
   final DeviceCoverageClient? coverageClient;
+  final DevicePackagesClient? packagesClient;
 
   /// Clock injection for tests; defaults to [DateTime.now].
   final DateTime Function()? now;
@@ -68,6 +78,14 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
       widget.snapshotStore ?? const HomeWidgetSnapshotStore();
   late final DeviceCoverageClient _coverageClient =
       widget.coverageClient ?? HttpDeviceCoverageClient();
+  late final DevicePackagesClient _packagesClient =
+      widget.packagesClient ?? HttpDevicePackagesClient();
+  List<AppliedPackage>? _packages;
+  Object? _packagesError;
+  bool _packagesLoading = false;
+  bool _pendingPackages = false;
+  bool _iccidCopied = false;
+  Timer? _copiedTimer;
 
   /// Coverage uses the same auth completeness as status (serial or PR18).
   bool get _coverageAvailable =>
@@ -91,14 +109,15 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _subscription = widget.reader.changes.listen((_) {
-      unawaited(_reload());
+      unawaited(_reload(includePackages: true));
     });
     // Do not arm timer here — only after a completed reload while resumed.
-    unawaited(_reload());
+    unawaited(_reload(includePackages: true));
   }
 
   @override
   void dispose() {
+    _copiedTimer?.cancel();
     _cancelForegroundTimer();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_subscription?.cancel());
@@ -131,7 +150,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
     }
     final wait = delay ?? widget.foregroundRefreshInterval;
     if (wait <= Duration.zero) {
-      unawaited(_reload());
+      unawaited(_reload(includePackages: false));
       return;
     }
     _foregroundTimer = Timer(wait, () {
@@ -139,7 +158,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
       if (!mounted || !_isResumed) {
         return;
       }
-      unawaited(_reload());
+      unawaited(_reload(includePackages: false));
     });
   }
 
@@ -163,13 +182,13 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
   void _maybeReloadOnResume() {
     final last = _lastReloadCompletedAt;
     if (last == null) {
-      unawaited(_reload());
+      unawaited(_reload(includePackages: false));
       return;
     }
     final now = _now();
     if (now.isBefore(last) ||
         now.difference(last) >= widget.resumeDebounce) {
-      unawaited(_reload());
+      unawaited(_reload(includePackages: false));
       return;
     }
     // Debounced: re-arm remaining time until next foreground refresh.
@@ -184,7 +203,10 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
     _armForegroundTimer();
   }
 
-  Future<void> _reload() {
+  Future<void> _reload({bool includePackages = false}) {
+    if (includePackages) {
+      _pendingPackages = true;
+    }
     // Single-flight: concurrent callers await the same request; clear when done.
     return _inFlight ??= _reloadBody().whenComplete(() {
       _inFlight = null;
@@ -220,6 +242,8 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
         setState(() {
           _config = config;
           _status = null;
+          _packages = null;
+          _packagesError = null;
           _view = OperationalStatusView.fromException(
             const MissingManagedConfigException(),
           );
@@ -229,41 +253,83 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
         return;
       }
 
-      // Serial wins when present (even if PR18 keys are also set). Never mix.
-      final status = config.prefersSerialAuth
-          ? await widget.statusClient.fetchStatus(
-              deviceSerial: config.deviceSerial!,
-            )
-          : await widget.statusClient.fetchStatus(
-              deviceExternalId: config.deviceExternalId!,
-              credential: config.deviceCredential!,
-            );
+      DeviceStatus? status;
+      Object? statusError;
+      final fetchPackages = _pendingPackages;
+      _pendingPackages = false;
+      final packagesFuture = fetchPackages
+          ? _loadPackages(config, generation)
+          : Future<void>.value();
+
+      try {
+        // Serial wins when present (even if PR18 keys are also set). Never mix.
+        status = config.prefersSerialAuth
+            ? await widget.statusClient.fetchStatus(
+                deviceSerial: config.deviceSerial!,
+              )
+            : await widget.statusClient.fetchStatus(
+                deviceExternalId: config.deviceExternalId!,
+                credential: config.deviceCredential!,
+              );
+      } catch (error) {
+        statusError = error;
+      }
 
       if (!mounted || generation != _reloadGeneration) {
         return;
       }
+
+      final loaded = status;
+      if (loaded != null) {
+        setState(() {
+          _config = config;
+          _status = loaded;
+          _view = evaluateOperationalView(loaded, now: _now());
+          _loading = false;
+        });
+        unawaited(_publishWidgetSnapshot());
+        await packagesFuture;
+        return;
+      }
+
+      if (hadSuccess && _status != null) {
+        setState(() {
+          _config = config;
+          _loading = false;
+        });
+        await packagesFuture;
+        return;
+      }
+
+      final mapped = _mapStatusError(statusError);
       setState(() {
         _config = config;
-        _status = status;
-        _view = evaluateOperationalView(status, now: _now());
+        _status = null;
+        _view = OperationalStatusView.fromException(mapped);
         _loading = false;
       });
       unawaited(_publishWidgetSnapshot());
-    } on DeviceStatusException catch (error) {
+      if (statusError != null && statusError is! DeviceStatusException) {
+        assert(() {
+          debugPrint(
+            'device status unexpected error: '
+            '${redactCredential('$statusError', credentialForRedaction)}',
+          );
+          return true;
+        }());
+      }
+      await packagesFuture;
+    } catch (error) {
       if (!mounted || generation != _reloadGeneration) {
         return;
       }
-      setState(() {
-        if (config != null) {
-          _config = config;
-        }
-        _status = null;
-        _view = OperationalStatusView.fromException(error);
-        _loading = false;
-      });
-      unawaited(_publishWidgetSnapshot());
-    } catch (error) {
-      if (!mounted || generation != _reloadGeneration) {
+      if (hadSuccess && _status != null) {
+        setState(() {
+          if (config != null) {
+            _config = config;
+          }
+          _loading = false;
+        });
         return;
       }
       setState(() {
@@ -289,6 +355,71 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
     }
   }
 
+  DeviceStatusException _mapStatusError(Object? error) {
+    if (error is DeviceStatusException) {
+      return error;
+    }
+    return const DeviceStatusUnexpectedException('Could not load status');
+  }
+
+  Future<void> _loadPackages(ManagedConfig config, int generation) async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _packagesLoading = true;
+    });
+    try {
+      final snapshot = config.prefersSerialAuth
+          ? await _packagesClient.fetchPackages(
+              deviceSerial: config.deviceSerial!,
+            )
+          : await _packagesClient.fetchPackages(
+              deviceExternalId: config.deviceExternalId!,
+              credential: config.deviceCredential!,
+            );
+      if (!mounted || generation != _reloadGeneration) {
+        return;
+      }
+      setState(() {
+        _packages = snapshot.results;
+        _packagesError = null;
+        _packagesLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || generation != _reloadGeneration) {
+        return;
+      }
+      setState(() {
+        _packagesError = error;
+        _packagesLoading = false;
+      });
+    }
+  }
+
+  Future<void> _retryPackages() async {
+    final config = _config;
+    if (config == null || !config.isComplete) {
+      return;
+    }
+    await _loadPackages(config, _reloadGeneration);
+  }
+
+  void _onIccidCopied() {
+    _copiedTimer?.cancel();
+    setState(() {
+      _iccidCopied = true;
+    });
+    _copiedTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _iccidCopied = false;
+      });
+    });
+  }
+
   /// Publish final success/error only — never in-flight [StatusSurface.slateLoading].
   Future<void> _publishWidgetSnapshot() async {
     if (_view.surface == StatusSurface.slateLoading) {
@@ -310,6 +441,52 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
         return true;
       }());
     }
+  }
+
+  List<Widget> _heroWarningBanners(Color onPanel) {
+    final bar = buildUsageBarView(
+      dataRemaining: _status?.usage.dataRemaining,
+      dataUsed: _status?.usage.dataUsed,
+    );
+    final expiry = buildExpiryCountdown(
+      expiresAt: _status?.usage.expiresAt,
+      now: _now(),
+      notYetInUse: esimNotYetInUse(_status?.esim.status),
+    );
+    final messages = <String>[];
+    if (bar.isLowRemaining) {
+      messages.add('Low data remaining');
+    }
+    if (expiry.isExpired) {
+      messages.add('This plan has expired');
+    } else if (expiry.isToday) {
+      messages.add('Expires today');
+    }
+    if (messages.isEmpty) {
+      return const [];
+    }
+    return [
+      const SizedBox(height: 16),
+      for (final message in messages)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Material(
+            color: onPanel.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: onPanel,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+    ];
   }
 
   Color get _panelColor {
@@ -431,7 +608,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
           ),
           IconButton(
             tooltip: 'Reload status',
-            onPressed: _loading ? null : _reload,
+            onPressed: _loading ? null : () => _reload(includePackages: true),
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -439,7 +616,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
       body: RefreshIndicator(
         color: onPanel,
         backgroundColor: _panelColor,
-        onRefresh: _reload,
+        onRefresh: () => _reload(includePackages: true),
         child: Stack(
           children: [
             Semantics(
@@ -491,10 +668,10 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
                         builder: (context) {
                           final badge = buildPlanBadgeView(_status?.plan);
                           if (badge == null) {
-                            return const SizedBox(height: 48);
+                            return const SizedBox(height: 20);
                           }
                           return Padding(
-                            padding: const EdgeInsets.only(top: 28, bottom: 40),
+                            padding: const EdgeInsets.only(top: 20, bottom: 8),
                             child: _PlanBadge(
                               badge: badge,
                               color: onPanel,
@@ -504,27 +681,65 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
                           );
                         },
                       ),
+                      IccidCopyRow(
+                        iccid: _status?.esim.iccid ?? '',
+                        color: onPanel,
+                        copied: _iccidCopied,
+                        onCopied: _onIccidCopied,
+                      ),
+                      const SizedBox(height: 20),
+                      UsageBarWidget(
+                        bar: buildUsageBarView(
+                          dataRemaining: _status?.usage.dataRemaining,
+                          dataUsed: _status?.usage.dataUsed,
+                        ),
+                        color: onPanel,
+                      ),
+                      ..._heroWarningBanners(onPanel),
+                      const SizedBox(height: 24),
+                      _ExpiryBlock(
+                        countdown: buildExpiryCountdown(
+                          expiresAt: _status?.usage.expiresAt,
+                          now: _now(),
+                          notYetInUse: esimNotYetInUse(_status?.esim.status),
+                        ),
+                        color: onPanel,
+                      ),
+                      const SizedBox(height: 28),
+                      _UpdatedRow(
+                        caption: formatUpdatedCaption(view.checkedAt),
+                        color: onPanel,
+                        loading: _loading,
+                        onRefresh: () => _reload(includePackages: true),
+                      ),
+                      const SizedBox(height: 28),
+                      Material(
+                        color: Colors.white,
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(20),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 24, 4, 8),
+                          child: DevicePackagesSection(
+                            packages: _packages,
+                            packagesError: _packagesError,
+                            loading: _packagesLoading,
+                            onRetry: _retryPackages,
+                          ),
+                        ),
+                      ),
                     ] else
                       const SizedBox(height: 48),
-                    _StatusMetric(
-                      label: 'Data remaining',
-                      value: view.dataRemainingDisplay ?? '—',
-                      color: onPanel,
-                    ),
-                    const SizedBox(height: 28),
-                    _StatusMetric(
-                      label: 'Expires',
-                      value: view.expiresDisplay,
-                      color: onPanel,
-                    ),
-                    const SizedBox(height: 40),
-                    Text(
-                      formatUpdatedCaption(view.checkedAt),
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: onPanel.withValues(alpha: 0.75),
+                    if (!view.isSuccessSnapshot &&
+                        view.surface != StatusSurface.slateLoading) ...[
+                      Text(
+                        formatUpdatedCaption(view.checkedAt),
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: onPanel.withValues(alpha: 0.75),
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ],
               ),
@@ -659,36 +874,88 @@ class _PlanBadgeIcon extends StatelessWidget {
   }
 }
 
-class _StatusMetric extends StatelessWidget {
-  const _StatusMetric({
-    required this.label,
-    required this.value,
+class _ExpiryBlock extends StatelessWidget {
+  const _ExpiryBlock({
+    required this.countdown,
     required this.color,
   });
 
-  final String label;
-  final String value;
+  final ExpiryCountdown countdown;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.calendar_today_outlined, color: color, size: 18),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                countdown.combinedLine,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (!countdown.startsOnFirstUse &&
+            countdown.remainingLine != '—' &&
+            !countdown.combinedLine.contains(countdown.remainingLine)) ...[
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.schedule, color: color.withValues(alpha: 0.85), size: 16),
+              const SizedBox(width: 6),
+              Text(
+                countdown.remainingLine,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: color.withValues(alpha: 0.85),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _UpdatedRow extends StatelessWidget {
+  const _UpdatedRow({
+    required this.caption,
+    required this.color,
+    required this.loading,
+    required this.onRefresh,
+  });
+
+  final String caption;
+  final Color color;
+  final bool loading;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
         Text(
-          label,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            color: color.withValues(alpha: 0.8),
-            letterSpacing: 0.4,
+          caption,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: color.withValues(alpha: 0.75),
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            color: color,
-            fontWeight: FontWeight.w600,
-          ),
+        IconButton(
+          tooltip: 'Refresh',
+          visualDensity: VisualDensity.compact,
+          onPressed: loading ? null : onRefresh,
+          icon: Icon(Icons.refresh, color: color, size: 20),
         ),
       ],
     );

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:roamkit_bbuem_apk/api/device_coverage.dart';
 import 'package:roamkit_bbuem_apk/api/device_coverage_client.dart';
+import 'package:roamkit_bbuem_apk/api/device_packages.dart';
+import 'package:roamkit_bbuem_apk/api/device_packages_client.dart';
 import 'package:roamkit_bbuem_apk/api/device_status.dart';
 import 'package:roamkit_bbuem_apk/api/device_status_client.dart';
 import 'package:roamkit_bbuem_apk/api/device_status_errors.dart';
@@ -92,6 +94,68 @@ class _FakeCoverageClient implements DeviceCoverageClient {
   }
 }
 
+class _FakePackagesClient implements DevicePackagesClient {
+  _FakePackagesClient({this.snapshot, this.error});
+
+  DevicePackages? snapshot;
+  Object? error;
+  int calls = 0;
+  String? lastSerial;
+  String? lastExternalId;
+  String? lastCredential;
+  Completer<DevicePackages>? delay;
+
+  @override
+  Future<DevicePackages> fetchPackages({
+    String? deviceSerial,
+    String? deviceExternalId,
+    String? credential,
+  }) async {
+    calls += 1;
+    lastSerial = deviceSerial;
+    lastExternalId = deviceExternalId;
+    lastCredential = credential;
+    if (delay != null) {
+      return delay!.future;
+    }
+    if (error != null) {
+      throw error!;
+    }
+    return snapshot ??
+        DevicePackages(
+          deviceExternalId: deviceExternalId,
+          iccid: _testIccid,
+          results: const [],
+          checkedAt: DateTime.utc(2026, 8, 9, 14, 21),
+        );
+  }
+}
+
+AppliedPackage _samplePackage({
+  String id = '1',
+  String kind = 'esim',
+  String status = 'active',
+  String dataAllowance = '1 GB',
+  int validityDays = 7,
+  bool isUnlimited = false,
+  String? paidUsd = '11.50',
+}) {
+  return AppliedPackage(
+    id: id,
+    kind: kind,
+    status: status,
+    dataAllowance: dataAllowance,
+    validityDays: validityDays,
+    isUnlimited: isUnlimited,
+    remainingMb: isUnlimited ? null : 900,
+    createdAt: DateTime.utc(2026, 8, 1),
+    activatedAt: status == 'not_active' ? null : '2026-08-12T10:50:00+00:00',
+    expiresAt: status == 'not_active' ? null : '2026-08-19T10:50:00+00:00',
+    paidUsd: paidUsd,
+    currency: 'USD',
+  );
+}
+
 const _testIccid = '8900424101001825931';
 
 DeviceStatus _sampleStatus({
@@ -128,6 +192,7 @@ Future<void> _pumpPage(
   DateTime Function()? now,
   WidgetSnapshotStore? snapshotStore,
   DeviceCoverageClient? coverageClient,
+  DevicePackagesClient? packagesClient,
   Duration foregroundRefreshInterval = const Duration(minutes: 10),
   Duration resumeDebounce = const Duration(seconds: 60),
 }) async {
@@ -137,6 +202,7 @@ Future<void> _pumpPage(
         reader: reader,
         statusClient: client,
         coverageClient: coverageClient ?? _FakeCoverageClient(),
+        packagesClient: packagesClient ?? _FakePackagesClient(),
         now: now ?? () => DateTime.utc(2026, 8, 9, 12),
         snapshotStore: snapshotStore ?? NoopWidgetSnapshotStore(),
         foregroundRefreshInterval: foregroundRefreshInterval,
@@ -159,7 +225,7 @@ bool _hasForegroundTimer(WidgetTester tester) {
 }
 
 void main() {
-  testWidgets('GREEN ACTIVE and never renders credential or ICCID', (
+  testWidgets('GREEN ACTIVE shows ICCID and never renders credential', (
     tester,
   ) async {
     const secret = 'plain-secret-must-not-appear';
@@ -175,13 +241,13 @@ void main() {
     await _pumpPage(tester, reader: reader, client: client);
 
     expect(find.text('ACTIVE'), findsOneWidget);
-    expect(find.text('12 MB'), findsOneWidget);
+    expect(find.text('12 MB of 100 MB remaining'), findsOneWidget);
+    expect(find.text('88 MB used'), findsOneWidget);
     expect(find.text('Cronet (Croatia)'), findsOneWidget);
-    expect(find.text('Unlimited · 3 days'), findsOneWidget);
+    expect(find.text('Unlimited · 3 days'), findsNothing);
     expect(find.text('🇭🇷'), findsOneWidget);
     expect(find.text(secret), findsNothing);
-    expect(find.text(_testIccid), findsNothing);
-    expect(find.textContaining('ICCID'), findsNothing);
+    expect(find.text(_testIccid), findsOneWidget);
 
     await tester.tap(find.byTooltip('Support menu'));
     await tester.pumpAndSettle();
@@ -190,7 +256,7 @@ void main() {
     expect(find.text('Auto-topup'), findsOneWidget);
     expect(find.text('Enabled'), findsOneWidget);
     expect(find.text(secret), findsNothing);
-    expect(find.text(_testIccid), findsNothing);
+    expect(find.text('Device binding'), findsOneWidget);
     expect(client.calls, 1);
     expect(client.lastCredential, secret);
   });
@@ -352,7 +418,7 @@ void main() {
     expect(find.text('Network error'), findsOneWidget);
   });
 
-  testWidgets('failed refresh clears stale GREEN to slate error', (
+  testWidgets('failed refresh keeps last-good ACTIVE hero', (
     tester,
   ) async {
     final reader = _FakeReader(
@@ -366,14 +432,16 @@ void main() {
 
     await _pumpPage(tester, reader: reader, client: client);
     expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text(_testIccid), findsOneWidget);
 
     client
       ..status = null
       ..error = DeviceStatusNetworkException('down');
     await tester.tap(find.byTooltip('Reload status'));
     await tester.pumpAndSettle();
-    expect(find.text('ACTIVE'), findsNothing);
-    expect(find.text('OFFLINE'), findsOneWidget);
+    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text(_testIccid), findsOneWidget);
+    expect(find.text('OFFLINE'), findsNothing);
   });
 
   testWidgets('single-flight reload does not double-fetch', (tester) async {
@@ -393,6 +461,7 @@ void main() {
           reader: reader,
           statusClient: client,
           coverageClient: _FakeCoverageClient(),
+          packagesClient: _FakePackagesClient(),
           now: () => DateTime.utc(2026, 8, 9, 12),
           snapshotStore: NoopWidgetSnapshotStore(),
         ),
@@ -436,6 +505,7 @@ void main() {
           reader: reader,
           statusClient: client,
           coverageClient: _FakeCoverageClient(),
+          packagesClient: _FakePackagesClient(),
           now: () => DateTime.utc(2026, 8, 9, 12),
           snapshotStore: store,
         ),
@@ -648,7 +718,7 @@ void main() {
     await _pumpPage(tester, reader: reader, client: client);
     expect(find.text('ACTIVE'), findsOneWidget);
     expect(find.text('Cronet (Croatia)'), findsNothing);
-    expect(find.textContaining('·'), findsNothing);
+    expect(find.text(_testIccid), findsOneWidget);
   });
 
   testWidgets('long plan title uses ellipsis', (tester) async {
@@ -790,6 +860,7 @@ void main() {
         home: DeviceStatusPage(
           reader: reader,
           statusClient: client,
+          packagesClient: _FakePackagesClient(),
           now: () => DateTime.utc(2026, 8, 9, 12),
           snapshotStore: NoopWidgetSnapshotStore(),
           foregroundRefreshInterval: const Duration(milliseconds: 80),
@@ -945,6 +1016,7 @@ void main() {
         home: DeviceStatusPage(
           reader: reader,
           statusClient: client,
+          packagesClient: _FakePackagesClient(),
           snapshotStore: NoopWidgetSnapshotStore(),
           foregroundRefreshInterval: const Duration(milliseconds: 50),
         ),
@@ -979,6 +1051,7 @@ void main() {
         home: DeviceStatusPage(
           reader: reader,
           statusClient: client,
+          packagesClient: _FakePackagesClient(),
           snapshotStore: NoopWidgetSnapshotStore(),
           foregroundRefreshInterval: const Duration(milliseconds: 40),
           resumeDebounce: const Duration(hours: 1),
@@ -1012,5 +1085,148 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1));
       expect(_hasForegroundTimer(tester), isTrue);
     }
+  });
+
+  testWidgets('open loads packages; timer refreshes status only', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    final packages = _FakePackagesClient(
+      snapshot: DevicePackages(
+        deviceExternalId: 'dev-1',
+        iccid: _testIccid,
+        results: [
+          _samplePackage(),
+          _samplePackage(id: '2', kind: 'topup', status: 'not_active'),
+        ],
+        checkedAt: DateTime.utc(2026, 8, 9),
+      ),
+    );
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      packagesClient: packages,
+      foregroundRefreshInterval: const Duration(milliseconds: 100),
+    );
+    expect(client.calls, 1);
+    expect(packages.calls, 1);
+    expect(find.text('2 packages available'), findsOneWidget);
+    expect(find.text('1 Active'), findsOneWidget);
+    expect(find.text('1 Not active'), findsOneWidget);
+    expect(find.text('Next package starts on first use'), findsOneWidget);
+    expect(find.text('Available'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 110));
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(client.calls, 2);
+    expect(packages.calls, 1);
+  });
+
+  testWidgets('packages failure keeps hero and shows Retry', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    final packages = _FakePackagesClient(
+      error: const DevicePackagesProviderUnavailableException(),
+    );
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      packagesClient: packages,
+    );
+    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text(_testIccid), findsOneWidget);
+    expect(find.text('12 MB of 100 MB remaining'), findsOneWidget);
+    expect(find.text('Could not load packages'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets('copy ICCID shows Copied confirmation', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    addTearDown(reader.dispose);
+
+    await _pumpPage(tester, reader: reader, client: client);
+    expect(find.text(_testIccid), findsOneWidget);
+    await tester.tap(find.byTooltip('Copy ICCID'));
+    await tester.pump();
+    expect(find.text('Copied'), findsOneWidget);
+  });
+
+  testWidgets('unknown package is not labeled Expired', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    final packages = _FakePackagesClient(
+      snapshot: DevicePackages(
+        deviceExternalId: 'dev-1',
+        iccid: _testIccid,
+        results: [
+          _samplePackage(id: 'u', status: 'queued'),
+        ],
+        checkedAt: DateTime.utc(2026, 8, 9),
+      ),
+    );
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      packagesClient: packages,
+    );
+    expect(find.text('Unknown'), findsWidgets);
+    expect(find.text('Expired'), findsNothing);
+    expect(find.text('Available'), findsNothing);
+  });
+
+  testWidgets('packages POST uses serial and never a client ICCID', (
+    tester,
+  ) async {
+    const serial = '36281JEGR04531';
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceSerial: serial,
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret-must-not-be-sent',
+      ),
+    );
+    final client = _FakeStatusClient(status: _sampleStatus());
+    final packages = _FakePackagesClient();
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      packagesClient: packages,
+    );
+    expect(packages.calls, 1);
+    expect(packages.lastSerial, serial);
+    expect(packages.lastCredential, isNull);
+    expect(packages.lastExternalId, isNull);
   });
 }

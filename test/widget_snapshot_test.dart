@@ -60,7 +60,7 @@ void main() {
     expect(snap.remaining, 'Unlimited');
     expect(snap.expires, isNot(''));
     expect(snap.planTitle, 'Cronet (Croatia)');
-    expect(snap.planSubtitle, 'Unlimited · 3 days');
+    expect(snap.planSubtitle, '');
     expect(snap.planFlag, '🇭🇷');
     expect(snap.planIcon, 'flag');
     expect(snap.containsForbiddenKeys, isFalse);

@@ -65,7 +65,7 @@ void main() {
       );
       expect(badge, isNotNull);
       expect(badge!.title, 'Cronet (Croatia)');
-      expect(badge.subtitle, 'Unlimited · 3 days');
+      expect(badge.subtitle, isNull);
       expect(badge.iconKind, PlanBadgeIconKind.flag);
       expect(badge.flagEmoji, '🇭🇷');
     });
@@ -112,12 +112,11 @@ void main() {
       expect(badge!.iconKind, PlanBadgeIconKind.neutral);
     });
 
-    test('partial plan has no stray separator', () {
+    test('badge omits allowance/validity subtitle', () {
       final badge = buildPlanBadgeView(
         const DeviceStatusPlan(title: 'Discover', dataAllowance: '300 MB'),
       );
-      expect(badge!.subtitle, '300 MB');
-      expect(badge.subtitle!.contains('·'), isFalse);
+      expect(badge!.subtitle, isNull);
     });
   });
 
