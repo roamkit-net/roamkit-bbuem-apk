@@ -196,6 +196,9 @@ Future<void> _pumpPage(
   Duration foregroundRefreshInterval = const Duration(minutes: 10),
   Duration resumeDebounce = const Duration(seconds: 60),
 }) async {
+  tester.view.physicalSize = const Size(400, 1800);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
   await tester.pumpWidget(
     MaterialApp(
       home: DeviceStatusPage(
@@ -240,12 +243,12 @@ void main() {
 
     await _pumpPage(tester, reader: reader, client: client);
 
-    expect(find.text('ACTIVE'), findsOneWidget);
-    expect(find.text('12 MB of 100 MB remaining'), findsOneWidget);
+    expect(find.text('✓ ACTIVE'), findsOneWidget);
+    expect(find.text('of 100 MB remaining'), findsOneWidget);
     expect(find.text('88 MB used'), findsOneWidget);
-    expect(find.text('Cronet (Croatia)'), findsOneWidget);
+    expect(find.text('Cronet (Croatia)'), findsNothing);
     expect(find.text('Unlimited · 3 days'), findsNothing);
-    expect(find.text('🇭🇷'), findsOneWidget);
+    expect(find.text('🇭🇷'), findsNothing);
     expect(find.text(secret), findsNothing);
     expect(find.text(_testIccid), findsOneWidget);
 
@@ -275,7 +278,7 @@ void main() {
 
     await _pumpPage(tester, reader: reader, client: client);
 
-    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text('✓ ACTIVE'), findsOneWidget);
     expect(client.calls, 1);
     expect(client.lastSerial, serial);
     expect(client.lastExternalId, isNull);
@@ -300,7 +303,7 @@ void main() {
 
     await _pumpPage(tester, reader: reader, client: client);
 
-    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text('✓ ACTIVE'), findsOneWidget);
     expect(client.calls, 1);
     expect(client.lastSerial, '36281JEGR04531');
     expect(client.lastCredential, isNull);
@@ -319,7 +322,8 @@ void main() {
     addTearDown(reader.dispose);
 
     await _pumpPage(tester, reader: reader, client: client);
-    expect(find.text('NO DATA'), findsOneWidget);
+    expect(find.text('○ INACTIVE'), findsOneWidget);
+    expect(find.text('No active data package'), findsOneWidget);
     expect(find.text('No RoamKit data for this device'), findsNothing);
   });
 
@@ -338,9 +342,9 @@ void main() {
     addTearDown(reader.dispose);
 
     await _pumpPage(tester, reader: reader, client: client);
-    expect(find.text('NO DATA'), findsOneWidget);
-    expect(find.text('No RoamKit data for this device'), findsOneWidget);
-    expect(find.text('ACTIVE'), findsNothing);
+    expect(find.text('↻ UNAVAILABLE'), findsOneWidget);
+    expect(find.text('Status is temporarily unavailable'), findsOneWidget);
+    expect(find.text('✓ ACTIVE'), findsNothing);
   });
 
   testWidgets('missing managed config is slate UNAVAILABLE', (tester) async {
@@ -351,8 +355,8 @@ void main() {
     addTearDown(reader.dispose);
 
     await _pumpPage(tester, reader: reader, client: client);
-    expect(find.text('UNAVAILABLE'), findsOneWidget);
-    expect(find.text('Waiting for managed configuration'), findsOneWidget);
+    expect(find.text('↻ UNAVAILABLE'), findsOneWidget);
+    expect(find.text('Status is temporarily unavailable'), findsOneWidget);
     expect(client.calls, 0);
 
     await tester.tap(find.byTooltip('Support menu'));
@@ -375,7 +379,7 @@ void main() {
     addTearDown(reader.dispose);
 
     await _pumpPage(tester, reader: reader, client: client);
-    expect(find.text('UNAVAILABLE'), findsOneWidget);
+    expect(find.text('↻ UNAVAILABLE'), findsOneWidget);
     expect(client.calls, 1);
 
     client
@@ -391,7 +395,7 @@ void main() {
 
     expect(client.calls, 2);
     expect(client.lastCredential, 'secret-b');
-    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text('✓ ACTIVE'), findsOneWidget);
     expect(find.text('secret-a'), findsNothing);
     expect(find.text('secret-b'), findsNothing);
   });
@@ -409,13 +413,14 @@ void main() {
     addTearDown(reader.dispose);
 
     await _pumpPage(tester, reader: reader, client: client);
-    expect(find.text('TRY LATER'), findsOneWidget);
+    expect(find.text('↻ UNAVAILABLE'), findsOneWidget);
+    expect(find.text('Status is temporarily unavailable'), findsOneWidget);
 
     client.error = DeviceStatusNetworkException('DNS lookup failed');
     await tester.tap(find.byTooltip('Reload status'));
     await tester.pumpAndSettle();
-    expect(find.text('OFFLINE'), findsOneWidget);
-    expect(find.text('Network error'), findsOneWidget);
+    expect(find.text('↻ UNAVAILABLE'), findsOneWidget);
+    expect(find.text('Status is temporarily unavailable'), findsOneWidget);
   });
 
   testWidgets('failed refresh keeps last-good ACTIVE hero', (
@@ -431,7 +436,7 @@ void main() {
     addTearDown(reader.dispose);
 
     await _pumpPage(tester, reader: reader, client: client);
-    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text('✓ ACTIVE'), findsOneWidget);
     expect(find.text(_testIccid), findsOneWidget);
 
     client
@@ -439,8 +444,9 @@ void main() {
       ..error = DeviceStatusNetworkException('down');
     await tester.tap(find.byTooltip('Reload status'));
     await tester.pumpAndSettle();
-    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text('✓ ACTIVE'), findsOneWidget);
     expect(find.text(_testIccid), findsOneWidget);
+    expect(find.text('Couldn’t refresh status'), findsOneWidget);
     expect(find.text('OFFLINE'), findsNothing);
   });
 
@@ -482,7 +488,7 @@ void main() {
 
     delay.complete(_sampleStatus());
     await tester.pumpAndSettle();
-    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text('✓ ACTIVE'), findsOneWidget);
   });
 
   testWidgets('publishes widget snapshot on success not during in-flight', (
@@ -716,12 +722,12 @@ void main() {
     addTearDown(reader.dispose);
 
     await _pumpPage(tester, reader: reader, client: client);
-    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text('✓ ACTIVE'), findsOneWidget);
     expect(find.text('Cronet (Croatia)'), findsNothing);
     expect(find.text(_testIccid), findsOneWidget);
   });
 
-  testWidgets('long plan title uses ellipsis', (tester) async {
+  testWidgets('plan title is never a hero fallback', (tester) async {
     final reader = _FakeReader(
       const ManagedConfig(
         deviceExternalId: 'dev-1',
@@ -743,13 +749,12 @@ void main() {
     addTearDown(reader.dispose);
 
     await _pumpPage(tester, reader: reader, client: client);
-    final title = tester.widget<Text>(find.text(longTitle));
-    expect(title.maxLines, 1);
-    expect(title.overflow, TextOverflow.ellipsis);
-    expect(find.byIcon(Icons.map_outlined), findsOneWidget);
+    expect(find.text(longTitle), findsNothing);
+    expect(find.text('Discover'), findsNothing);
+    expect(find.byIcon(Icons.map_outlined), findsNothing);
   });
 
-  testWidgets('global plan shows globe icon', (tester) async {
+  testWidgets('hero title comes from active_package not plan', (tester) async {
     final reader = _FakeReader(
       const ManagedConfig(
         deviceExternalId: 'dev-1',
@@ -759,18 +764,50 @@ void main() {
     final client = _FakeStatusClient(
       status: _sampleStatus(
         plan: const DeviceStatusPlan(
-          title: 'Discover',
+          title: '300 MB - 3 days',
           dataAllowance: '300 MB',
           validityDays: 3,
-          coverageType: 'global',
         ),
+      ),
+    );
+    final active = _samplePackage(
+      id: 'topup-active',
+      kind: 'topup',
+      status: 'active',
+      dataAllowance: '1 GB',
+      validityDays: 7,
+    );
+    final packages = _FakePackagesClient(
+      snapshot: DevicePackages(
+        deviceExternalId: 'dev-1',
+        iccid: _testIccid,
+        results: [
+          _samplePackage(
+            id: 'esim-old',
+            kind: 'esim',
+            status: 'expired',
+            dataAllowance: '300 MB',
+            validityDays: 3,
+          ),
+          active,
+          _samplePackage(id: 'queued', kind: 'topup', status: 'queued'),
+        ],
+        activePackage: active,
+        checkedAt: DateTime.utc(2026, 8, 9),
       ),
     );
     addTearDown(reader.dispose);
 
-    await _pumpPage(tester, reader: reader, client: client);
-    expect(find.text('Discover'), findsOneWidget);
-    expect(find.byIcon(Icons.public), findsOneWidget);
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      packagesClient: packages,
+    );
+    expect(find.text('Top-up · 1 GB · 7 days'), findsWidgets);
+    expect(find.text('300 MB - 3 days'), findsNothing);
+    expect(find.textContaining('Previous'), findsOneWidget);
+    expect(find.textContaining('300 MB · 3 days'), findsWidgets);
   });
 
   testWidgets('Updated caption uses local time from UTC checkedAt', (
@@ -808,6 +845,7 @@ void main() {
     final expected =
         'Updated ${local.hour.toString().padLeft(2, '0')}:'
         '${local.minute.toString().padLeft(2, '0')}';
+    expect(find.textContaining('Updated'), findsOneWidget);
     expect(find.text(expected), findsOneWidget);
   });
 
@@ -1117,11 +1155,9 @@ void main() {
     );
     expect(client.calls, 1);
     expect(packages.calls, 1);
-    expect(find.text('2 packages available'), findsOneWidget);
-    expect(find.text('1 Active'), findsOneWidget);
-    expect(find.text('1 Not active'), findsOneWidget);
-    expect(find.text('Next package starts on first use'), findsOneWidget);
-    expect(find.text('Available'), findsOneWidget);
+    expect(find.text('1 active · 1 queued'), findsOneWidget);
+    expect(find.text('Starts on first use'), findsOneWidget);
+    expect(find.text('Packages'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 110));
     await tester.pump(const Duration(milliseconds: 1));
@@ -1148,10 +1184,10 @@ void main() {
       client: client,
       packagesClient: packages,
     );
-    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text('✓ ACTIVE'), findsOneWidget);
     expect(find.text(_testIccid), findsOneWidget);
-    expect(find.text('12 MB of 100 MB remaining'), findsOneWidget);
-    expect(find.text('Could not load packages'), findsOneWidget);
+    expect(find.text('of 100 MB remaining'), findsOneWidget);
+    expect(find.text('Couldn’t refresh packages'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
   });
 
@@ -1169,7 +1205,7 @@ void main() {
     expect(find.text(_testIccid), findsOneWidget);
     await tester.tap(find.byTooltip('Copy ICCID'));
     await tester.pump();
-    expect(find.text('Copied'), findsOneWidget);
+    expect(find.text('ICCID copied'), findsWidgets);
   });
 
   testWidgets('unknown package is not labeled Expired', (tester) async {
@@ -1185,7 +1221,7 @@ void main() {
         deviceExternalId: 'dev-1',
         iccid: _testIccid,
         results: [
-          _samplePackage(id: 'u', status: 'queued'),
+          _samplePackage(id: 'u', status: 'mystery'),
         ],
         checkedAt: DateTime.utc(2026, 8, 9),
       ),
@@ -1198,9 +1234,44 @@ void main() {
       client: client,
       packagesClient: packages,
     );
-    expect(find.text('Unknown'), findsWidgets);
-    expect(find.text('Expired'), findsNothing);
-    expect(find.text('Available'), findsNothing);
+    expect(find.text('Unknown'), findsNothing);
+    expect(find.text('Queued'), findsNothing);
+    expect(find.text('Starts on first use'), findsNothing);
+    expect(find.text('Packages'), findsNothing);
+  });
+
+  testWidgets('EXPIRED hides last-good active_package title', (tester) async {
+    final reader = _FakeReader(
+      const ManagedConfig(
+        deviceExternalId: 'dev-1',
+        deviceCredential: 'secret',
+      ),
+    );
+    final client = _FakeStatusClient(
+      status: _sampleStatus(expiresAt: DateTime.utc(2026, 8, 1)),
+    );
+    final active = _samplePackage(id: 'still-active', kind: 'topup');
+    final packages = _FakePackagesClient(
+      snapshot: DevicePackages(
+        deviceExternalId: 'dev-1',
+        iccid: _testIccid,
+        results: [active],
+        activePackage: active,
+        checkedAt: DateTime.utc(2026, 8, 9),
+      ),
+    );
+    addTearDown(reader.dispose);
+
+    await _pumpPage(
+      tester,
+      reader: reader,
+      client: client,
+      packagesClient: packages,
+    );
+    expect(find.text('! EXPIRED'), findsOneWidget);
+    expect(find.text('Data package expired'), findsOneWidget);
+    expect(find.text('Top-up · 1 GB · 7 days'), findsOneWidget);
+    expect(find.text('Expired'), findsWidgets);
   });
 
   testWidgets('packages POST uses serial and never a client ICCID', (

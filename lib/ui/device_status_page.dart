@@ -11,7 +11,8 @@ import '../api/device_status_errors.dart';
 import '../config/app_config.dart';
 import '../managed_config/managed_config.dart';
 import '../managed_config/managed_config_reader.dart';
-import '../status/expiry_countdown.dart';
+import '../status/applied_packages.dart';
+import '../status/home_status_chrome.dart';
 import '../status/menu_formatters.dart';
 import '../status/operational_status_view.dart';
 import '../status/plan_badge.dart';
@@ -19,9 +20,14 @@ import '../status/usage_bar_view.dart';
 import '../widget/widget_snapshot.dart';
 import '../widget/widget_snapshot_store.dart';
 import 'device_coverage_page.dart';
-import 'device_packages_section.dart';
-import 'iccid_copy_row.dart';
-import 'usage_bar_widget.dart';
+import 'home_error_banner.dart';
+import 'home_expiry_card.dart';
+import 'home_iccid_card.dart';
+import 'home_packages_cards.dart';
+import 'home_refresh_icon.dart';
+import 'home_skeleton.dart';
+import 'home_tokens.dart';
+import 'home_usage_ring.dart';
 
 /// Reads UEM managed config and shows operational eSIM status.
 ///
@@ -80,10 +86,11 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
       widget.coverageClient ?? HttpDeviceCoverageClient();
   late final DevicePackagesClient _packagesClient =
       widget.packagesClient ?? HttpDevicePackagesClient();
-  List<AppliedPackage>? _packages;
+  DevicePackages? _packagesSnapshot;
   Object? _packagesError;
   bool _packagesLoading = false;
   bool _pendingPackages = false;
+  bool _statusRefreshError = false;
   bool _iccidCopied = false;
   Timer? _copiedTimer;
 
@@ -242,8 +249,9 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
         setState(() {
           _config = config;
           _status = null;
-          _packages = null;
+          _packagesSnapshot = null;
           _packagesError = null;
+          _statusRefreshError = false;
           _view = OperationalStatusView.fromException(
             const MissingManagedConfigException(),
           );
@@ -286,6 +294,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
           _status = loaded;
           _view = evaluateOperationalView(loaded, now: _now());
           _loading = false;
+          _statusRefreshError = false;
         });
         unawaited(_publishWidgetSnapshot());
         await packagesFuture;
@@ -296,6 +305,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
         setState(() {
           _config = config;
           _loading = false;
+          _statusRefreshError = true;
         });
         await packagesFuture;
         return;
@@ -307,6 +317,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
         _status = null;
         _view = OperationalStatusView.fromException(mapped);
         _loading = false;
+        _statusRefreshError = false;
       });
       unawaited(_publishWidgetSnapshot());
       if (statusError != null && statusError is! DeviceStatusException) {
@@ -329,6 +340,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
             _config = config;
           }
           _loading = false;
+          _statusRefreshError = true;
         });
         return;
       }
@@ -382,7 +394,7 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
         return;
       }
       setState(() {
-        _packages = snapshot.results;
+        _packagesSnapshot = snapshot;
         _packagesError = null;
         _packagesLoading = false;
       });
@@ -443,24 +455,21 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
     }
   }
 
-  List<Widget> _heroWarningBanners(Color onPanel) {
+  List<Widget> _heroWarningBanners() {
     final bar = buildUsageBarView(
       dataRemaining: _status?.usage.dataRemaining,
       dataUsed: _status?.usage.dataUsed,
     );
-    final expiry = buildExpiryCountdown(
-      expiresAt: _status?.usage.expiresAt,
-      now: _now(),
-      notYetInUse: esimNotYetInUse(_status?.esim.status),
-    );
+    final expiresAt = _status?.usage.expiresAt;
     final messages = <String>[];
     if (bar.isLowRemaining) {
       messages.add('Low data remaining');
     }
-    if (expiry.isExpired) {
-      messages.add('This plan has expired');
-    } else if (expiry.isToday) {
-      messages.add('Expires today');
+    if (expiresAt != null) {
+      final remaining = expiresAt.difference(_now());
+      if (!remaining.isNegative && remaining <= const Duration(hours: 24)) {
+        messages.add('Expires today');
+      }
     }
     if (messages.isEmpty) {
       return const [];
@@ -471,15 +480,15 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Material(
-            color: onPanel.withValues(alpha: 0.16),
+            color: HomeTokens.expiry.withValues(alpha: 0.16),
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Text(
                 message,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: onPanel,
+                style: const TextStyle(
+                  color: HomeTokens.expiry,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -487,16 +496,6 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
           ),
         ),
     ];
-  }
-
-  Color get _panelColor {
-    return switch (_view.surface) {
-      StatusSurface.green => const Color(OperationalStatusView.greenColorValue),
-      StatusSurface.red => const Color(OperationalStatusView.redColorValue),
-      StatusSurface.slateLoading ||
-      StatusSurface.slateError =>
-        const Color(OperationalStatusView.slateColorValue),
-    };
   }
 
   void _openCoverage() {
@@ -591,13 +590,41 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
   @override
   Widget build(BuildContext context) {
     final view = _view;
-    final onPanel = Colors.white;
+    final chrome = homeStatusChrome(view);
+    final refreshing = _loading || _packagesLoading;
+    final showHeroSkeleton =
+        !view.isSuccessSnapshot && _status == null && _loading;
+    final showPackagesSkeleton =
+        _packagesSnapshot == null && _packagesLoading && _packagesError == null;
+    final groups = _packagesSnapshot == null
+        ? null
+        : partitionAppliedPackages(
+            _packagesSnapshot!.results,
+            activePackage: _packagesSnapshot!.activePackage,
+          );
+    final titlePackage = showHeroPackageTitle(
+      view,
+      _packagesSnapshot?.activePackage,
+    )
+        ? _packagesSnapshot!.activePackage
+        : null;
+    final bar = buildUsageBarView(
+      dataRemaining: _status?.usage.dataRemaining,
+      dataUsed: _status?.usage.dataUsed,
+    );
+    final showRing = view.isSuccessSnapshot &&
+        (chrome.kind == HomeStatusKind.active ||
+            (chrome.kind == HomeStatusKind.inactive &&
+                bar.kind != UsageBarKind.unavailable));
+    final updated = view.isSuccessSnapshot && view.checkedAt != null
+        ? formatUpdatedCaption(view.checkedAt)
+        : null;
 
     return Scaffold(
-      backgroundColor: _panelColor,
+      backgroundColor: HomeTokens.background,
       appBar: AppBar(
-        backgroundColor: _panelColor,
-        foregroundColor: onPanel,
+        backgroundColor: HomeTokens.background,
+        foregroundColor: HomeTokens.primaryText,
         elevation: 0,
         title: const Text('RoamKit'),
         actions: [
@@ -608,356 +635,218 @@ class _DeviceStatusPageState extends State<DeviceStatusPage>
           ),
           IconButton(
             tooltip: 'Reload status',
-            onPressed: _loading ? null : () => _reload(includePackages: true),
-            icon: const Icon(Icons.refresh),
+            onPressed: () => _reload(includePackages: true),
+            icon: HomeRefreshIcon(spinning: refreshing),
           ),
         ],
       ),
-      body: RefreshIndicator(
-        color: onPanel,
-        backgroundColor: _panelColor,
-        onRefresh: () => _reload(includePackages: true),
-        child: Stack(
+      body: SafeArea(
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: HomeTokens.maxContentWidth,
+            ),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(
+                HomeTokens.pageInset,
+                12,
+                HomeTokens.pageInset,
+                32,
+              ),
+              children: [
+                if (showHeroSkeleton)
+                  HomeSkeleton(
+                    showHero: true,
+                    showPackages: showPackagesSkeleton,
+                  )
+                else ...[
+                  _HeroCard(
+                    chrome: chrome,
+                    title: titlePackage == null
+                        ? null
+                        : appliedPackageTitle(titlePackage),
+                    showCoverage: _coverageAvailable,
+                    onViewCoverage: _openCoverage,
+                    showRing: showRing,
+                    bar: bar,
+                    showRetry: !view.isSuccessSnapshot,
+                    onRetry: () => _reload(includePackages: true),
+                  ),
+                  if (_statusRefreshError) ...[
+                    const SizedBox(height: HomeTokens.cardGap),
+                    HomeErrorBanner(
+                      message: 'Couldn’t refresh status',
+                      onRetry: () => _reload(includePackages: true),
+                    ),
+                  ],
+                  ..._heroWarningBanners(),
+                  if (view.isSuccessSnapshot) ...[
+                    const SizedBox(height: HomeTokens.cardGap),
+                    HomeIccidCard(
+                      iccid: _status?.esim.iccid ?? '',
+                      copied: _iccidCopied,
+                      onCopied: _onIccidCopied,
+                    ),
+                    const SizedBox(height: HomeTokens.cardGap),
+                    HomeExpiryCard(
+                      expiresAt: _status?.usage.expiresAt,
+                      now: _now(),
+                    ),
+                  ],
+                  const SizedBox(height: HomeTokens.cardGap),
+                  if (showPackagesSkeleton)
+                    const HomeSkeleton(showHero: false, showPackages: true)
+                  else
+                    HomePackagesCards(
+                      groups: groups,
+                      packagesError: _packagesError,
+                      onRetry: _retryPackages,
+                      firstLoadError: _packagesSnapshot == null &&
+                          _packagesError != null,
+                    ),
+                ],
+                if (updated != null) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    updated,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: HomeTokens.secondaryText,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroCard extends StatelessWidget {
+  const _HeroCard({
+    required this.chrome,
+    required this.title,
+    required this.showCoverage,
+    required this.onViewCoverage,
+    required this.showRing,
+    required this.bar,
+    required this.showRetry,
+    required this.onRetry,
+  });
+
+  final HomeStatusChrome chrome;
+  final String? title;
+  final bool showCoverage;
+  final VoidCallback onViewCoverage;
+  final bool showRing;
+  final UsageBarView bar;
+  final bool showRetry;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: HomeTokens.card,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(HomeTokens.cardRadius),
+        side: const BorderSide(color: HomeTokens.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+        child: Column(
           children: [
             Semantics(
-              label: view.semanticsSummary ?? view.heroLabel,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(24, 32, 24, 48),
-                children: [
-                  if (view.surface == StatusSurface.slateLoading) ...[
-                    const SizedBox(height: 48),
-                    Center(
-                      child: Semantics(
-                        label: 'Loading eSIM status',
-                        child: CircularProgressIndicator(color: onPanel),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      view.heroLabel,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: onPanel,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ] else ...[
-                    const SizedBox(height: 24),
-                    Text(
-                      view.heroLabel,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        color: onPanel,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    if (view.errorDetail != null) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        view.errorDetail!,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: onPanel.withValues(alpha: 0.9),
-                        ),
-                      ),
-                    ],
-                    if (view.isSuccessSnapshot) ...[
-                      Builder(
-                        builder: (context) {
-                          final badge = buildPlanBadgeView(_status?.plan);
-                          if (badge == null) {
-                            return const SizedBox(height: 20);
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 20, bottom: 8),
-                            child: _PlanBadge(
-                              badge: badge,
-                              color: onPanel,
-                              onViewCoverage:
-                                  _coverageAvailable ? _openCoverage : null,
-                            ),
-                          );
-                        },
-                      ),
-                      IccidCopyRow(
-                        iccid: _status?.esim.iccid ?? '',
-                        color: onPanel,
-                        copied: _iccidCopied,
-                        onCopied: _onIccidCopied,
-                      ),
-                      const SizedBox(height: 20),
-                      UsageBarWidget(
-                        bar: buildUsageBarView(
-                          dataRemaining: _status?.usage.dataRemaining,
-                          dataUsed: _status?.usage.dataUsed,
-                        ),
-                        color: onPanel,
-                      ),
-                      ..._heroWarningBanners(onPanel),
-                      const SizedBox(height: 24),
-                      _ExpiryBlock(
-                        countdown: buildExpiryCountdown(
-                          expiresAt: _status?.usage.expiresAt,
-                          now: _now(),
-                          notYetInUse: esimNotYetInUse(_status?.esim.status),
-                        ),
-                        color: onPanel,
-                      ),
-                      const SizedBox(height: 28),
-                      _UpdatedRow(
-                        caption: formatUpdatedCaption(view.checkedAt),
-                        color: onPanel,
-                        loading: _loading,
-                        onRefresh: () => _reload(includePackages: true),
-                      ),
-                      const SizedBox(height: 28),
-                      Material(
-                        color: Colors.white,
-                        borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(20),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(4, 24, 4, 8),
-                          child: DevicePackagesSection(
-                            packages: _packages,
-                            packagesError: _packagesError,
-                            loading: _packagesLoading,
-                            onRetry: _retryPackages,
-                          ),
-                        ),
-                      ),
-                    ] else
-                      const SizedBox(height: 48),
-                    if (!view.isSuccessSnapshot &&
-                        view.surface != StatusSurface.slateLoading) ...[
-                      Text(
-                        formatUpdatedCaption(view.checkedAt),
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: onPanel.withValues(alpha: 0.75),
-                        ),
-                      ),
-                    ],
-                  ],
-                ],
-              ),
-            ),
-            if (_loading && view.isSuccessSnapshot)
-              const Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: LinearProgressIndicator(
-                  minHeight: 2,
-                  backgroundColor: Colors.transparent,
-                  color: Colors.white70,
+              label: chrome.semantics,
+              child: Text(
+                chrome.badge,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: HomeTokens.primaryText,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
                 ),
               ),
+            ),
+            if (title != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                title!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: HomeTokens.primaryText,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            if (chrome.secondary != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                chrome.secondary!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: HomeTokens.secondaryText,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+            if (showCoverage) ...[
+              const SizedBox(height: 12),
+              Semantics(
+                button: true,
+                label: 'View coverage',
+                child: InkWell(
+                  onTap: onViewCoverage,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'View coverage',
+                          style: TextStyle(
+                            color: HomeTokens.primaryText,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right,
+                          color: HomeTokens.primaryText,
+                          size: 20,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            if (showRing) ...[
+              const SizedBox(height: 16),
+              HomeUsageRing(bar: bar),
+            ],
+            if (showRetry) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                height: HomeTokens.minTap,
+                child: TextButton(
+                  onPressed: onRetry,
+                  child: const Text(
+                    'Retry',
+                    style: TextStyle(color: HomeTokens.error),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
-    );
-  }
-}
-
-class _PlanBadge extends StatelessWidget {
-  const _PlanBadge({
-    required this.badge,
-    required this.color,
-    this.onViewCoverage,
-  });
-
-  final PlanBadgeView badge;
-  final Color color;
-  final VoidCallback? onViewCoverage;
-
-  @override
-  Widget build(BuildContext context) {
-    final tappable = onViewCoverage != null;
-    final content = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 40,
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: _PlanBadgeIcon(badge: badge, color: color),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                badge.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              if (badge.subtitle != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  badge.subtitle!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: color.withValues(alpha: 0.85),
-                  ),
-                ),
-              ],
-              if (tappable) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Text(
-                      'View coverage',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: color.withValues(alpha: 0.95),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Icon(Icons.chevron_right, color: color, size: 20),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-
-    return Semantics(
-      button: tappable,
-      label: [
-        badge.title,
-        if (badge.subtitle != null) badge.subtitle!,
-        if (tappable) 'View coverage',
-      ].join(', '),
-      child: tappable
-          ? InkWell(
-              onTap: onViewCoverage,
-              borderRadius: BorderRadius.circular(8),
-              child: content,
-            )
-          : content,
-    );
-  }
-}
-
-class _PlanBadgeIcon extends StatelessWidget {
-  const _PlanBadgeIcon({required this.badge, required this.color});
-
-  final PlanBadgeView badge;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    switch (badge.iconKind) {
-      case PlanBadgeIconKind.flag:
-        return Text(
-          badge.flagEmoji ?? '🏳️',
-          style: const TextStyle(fontSize: 28, height: 1.1),
-        );
-      case PlanBadgeIconKind.regional:
-        return Icon(Icons.map_outlined, color: color, size: 28);
-      case PlanBadgeIconKind.globe:
-        return Icon(Icons.public, color: color, size: 28);
-      case PlanBadgeIconKind.neutral:
-        return Icon(Icons.sim_card_outlined, color: color, size: 28);
-    }
-  }
-}
-
-class _ExpiryBlock extends StatelessWidget {
-  const _ExpiryBlock({
-    required this.countdown,
-    required this.color,
-  });
-
-  final ExpiryCountdown countdown;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.calendar_today_outlined, color: color, size: 18),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                countdown.combinedLine,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-        if (!countdown.startsOnFirstUse &&
-            countdown.remainingLine != '—' &&
-            !countdown.combinedLine.contains(countdown.remainingLine)) ...[
-          const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.schedule, color: color.withValues(alpha: 0.85), size: 16),
-              const SizedBox(width: 6),
-              Text(
-                countdown.remainingLine,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: color.withValues(alpha: 0.85),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _UpdatedRow extends StatelessWidget {
-  const _UpdatedRow({
-    required this.caption,
-    required this.color,
-    required this.loading,
-    required this.onRefresh,
-  });
-
-  final String caption;
-  final Color color;
-  final bool loading;
-  final VoidCallback onRefresh;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          caption,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: color.withValues(alpha: 0.75),
-          ),
-        ),
-        IconButton(
-          tooltip: 'Refresh',
-          visualDensity: VisualDensity.compact,
-          onPressed: loading ? null : onRefresh,
-          icon: Icon(Icons.refresh, color: color, size: 20),
-        ),
-      ],
     );
   }
 }
