@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'api/device_coverage_client.dart';
+import 'api/device_packages_client.dart';
 import 'api/device_status_client.dart';
 import 'managed_config/managed_config_reader.dart';
 import 'ui/device_status_page.dart';
@@ -17,12 +18,14 @@ class RoamKitDeviceApp extends StatelessWidget {
     this.reader,
     this.statusClient,
     this.coverageClient,
+    this.packagesClient,
     this.snapshotStore,
   });
 
   final ManagedConfigReader? reader;
   final DeviceStatusClient? statusClient;
   final DeviceCoverageClient? coverageClient;
+  final DevicePackagesClient? packagesClient;
   final WidgetSnapshotStore? snapshotStore;
 
   @override
@@ -37,6 +40,7 @@ class RoamKitDeviceApp extends StatelessWidget {
         reader: reader ?? ChannelManagedConfigReader(),
         statusClient: statusClient ?? HttpDeviceStatusClient(),
         coverageClient: coverageClient,
+        packagesClient: packagesClient,
         snapshotStore: snapshotStore,
       ),
     );

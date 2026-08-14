@@ -32,10 +32,6 @@ PlanBadgeView? buildPlanBadgeView(DeviceStatusPlan? plan) {
     return null;
   }
 
-  final subtitle = formatPlanSubtitle(
-    dataAllowance: plan.dataAllowance,
-    validityDays: plan.validityDays,
-  );
   final coverage = (plan.coverageType ?? '').trim().toLowerCase();
   final country = (plan.countryCode ?? '').trim().toUpperCase();
   final flag = countryFlagEmoji(country);
@@ -58,7 +54,7 @@ PlanBadgeView? buildPlanBadgeView(DeviceStatusPlan? plan) {
 
   return PlanBadgeView(
     title: title,
-    subtitle: subtitle,
+    subtitle: null,
     iconKind: kind,
     flagEmoji: flagEmoji,
   );

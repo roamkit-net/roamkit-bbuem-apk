@@ -44,6 +44,12 @@ class DeviceStatusRateLimitedException extends DeviceStatusException {
       : super('Too many status requests. Try again later.');
 }
 
+/// API returned 503 with ``code=provider_unavailable`` (package history).
+class DevicePackagesProviderUnavailableException extends DeviceStatusException {
+  const DevicePackagesProviderUnavailableException()
+      : super('Package history is temporarily unavailable.');
+}
+
 /// Read a machine ``code`` from a JSON error body without surfacing detail text.
 ///
 /// Returns null when the body is missing, invalid, or has no string ``code``.

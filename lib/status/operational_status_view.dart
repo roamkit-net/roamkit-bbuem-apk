@@ -99,6 +99,14 @@ class OperationalStatusView {
         errorDetail: 'Could not load status',
         semanticsSummary: 'Error. Could not load status',
       ),
+      DevicePackagesProviderUnavailableException() =>
+        const OperationalStatusView(
+          surface: StatusSurface.slateError,
+          heroLabel: 'ERROR',
+          isSuccessSnapshot: false,
+          errorDetail: 'Package history is temporarily unavailable',
+          semanticsSummary: 'Error. Package history temporarily unavailable',
+        ),
     };
   }
 
